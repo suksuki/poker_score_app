@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+*.pytest_cache/
+.pytest_cache/
+*.pyo
+*.pyd
+*.swp
+.Python
+.env
+.venv/
+venv/
+.env.local
+
+# Kivy / buildozer
+.buildozer/
+.buildozer.spec
+bin/
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Distribution
+dist/
+build/
+
+# Misc
+*.db
+*.sqlite3
+*.pem
+
+# Ignore local score backups (optional)
+score_data.json.bak*
+
