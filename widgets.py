@@ -1,0 +1,471 @@
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.widget import Widget
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.metrics import dp, sp
+from kivy.graphics import Color, Rectangle, Line, Ellipse
+from kivy.clock import Clock
+from kivy.uix.textinput import TextInput
+
+from theme import FONT_NAME, FA_FONT, BTN_BG, TEXT_COLOR, PANEL_BG, ACCENT, CURRENT_THEME, SMALL_FONT, INPUT_FONT, BTN_HEIGHT, ROW_HEIGHT
+
+def style_card(widget, *a, **kw):
+    return widget
+
+def style_button(btn: Button, *a, **kw):
+    try:
+        btn.background_normal = ''
+        btn.background_down = ''
+        btn.background_color = BTN_BG
+    except Exception:
+        pass
+    try:
+        btn.color = TEXT_COLOR
+    except Exception:
+        btn.color = (1, 1, 1, 1) if CURRENT_THEME == 'dark' else TEXT_COLOR
+    try:
+        btn.padding = (dp(8), dp(6))
+        btn.font_size = sp(13)
+    except Exception:
+        pass
+    return btn
+
+def L(text="", **kw):
+    if FONT_NAME:
+        kw.setdefault("font_name", FONT_NAME)
+    kw.setdefault("font_size", SMALL_FONT)
+    kw.setdefault("color", TEXT_COLOR)
+    kw.setdefault("halign", "center")
+    kw.setdefault("valign", "middle")
+    lbl = Label(text=text, **kw)
+    lbl.bind(size=lambda inst, *_: setattr(inst, "text_size", (inst.width, inst.height)))
+    return lbl
+
+def H(text="", **kw):
+    if FONT_NAME:
+        kw.setdefault("font_name", FONT_NAME)
+    kw.setdefault("font_size", sp(16))
+    kw.setdefault("color", TEXT_COLOR)
+    kw.setdefault("halign", "center")
+    kw.setdefault("valign", "middle")
+    lbl = Label(text=text, **kw)
+    lbl.bind(size=lambda inst, *_: setattr(inst, "text_size", (inst.width, inst.height)))
+    return lbl
+
+def TI(**kw):
+    if FONT_NAME:
+        kw.setdefault("font_name", FONT_NAME)
+    kw.setdefault("font_size", INPUT_FONT)
+    kw.setdefault("multiline", False)
+    kw.setdefault("background_normal", "")
+    kw.setdefault("background_active", "")
+    kw.setdefault("background_color", PANEL_BG)
+    kw.setdefault("foreground_color", TEXT_COLOR)
+    ti = TextInput(**kw)
+    try:
+        ti.size_hint_y = None
+        ti.height = dp(40)
+        ti.padding = [dp(6), dp(8), dp(6), dp(8)]
+    except Exception:
+        pass
+    return ti
+
+def cell_bg(text, width, height, bg_color):
+    from kivy.uix.boxlayout import BoxLayout
+    cont = BoxLayout(size_hint=(None, None), width=width, height=height)
+    try:
+        with cont.canvas.before:
+            border_color_instr = Color(* (0,0,0,0.06))
+            rect_border = Rectangle(pos=cont.pos, size=cont.size)
+            bg_color_instr = Color(*bg_color)
+            rect = Rectangle(pos=(cont.x + dp(1), cont.y + dp(1)), size=(max(0, cont.width - dp(2)), max(0, cont.height - dp(2))))
+        cont._rect_border = rect_border
+        cont._rect = rect
+        cont._border_color_instr = border_color_instr
+        cont._bg_color_instr = bg_color_instr
+        cont._bg_color = bg_color
+        cont.bind(pos=lambda inst, *_: setattr(rect_border, 'pos', inst.pos),
+                  size=lambda inst, *_: setattr(rect_border, 'size', inst.size))
+        cont.bind(pos=lambda inst, *_: setattr(rect, 'pos', (inst.x + dp(1), inst.y + dp(1))),
+                  size=lambda inst, *_: setattr(rect, 'size', (max(0, inst.width - dp(2)), max(0, inst.height - dp(2)))))
+    except Exception:
+        cont._rect_border = None
+        cont._rect = None
+        cont._border_color_instr = None
+        cont._bg_color_instr = None
+        cont._bg_color = bg_color
+        pass
+    lbl = L(text=text, size_hint=(1, 1))
+    cont.add_widget(lbl)
+    return cont
+
+def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
+    from kivy.uix.boxlayout import BoxLayout
+    cont = BoxLayout(size_hint=(None, None), width=width, height=height)
+    try:
+        with cont.canvas.before:
+            border_color_instr = Color(* (0,0,0,0.06))
+            rect_border = Rectangle(pos=cont.pos, size=cont.size)
+            bg_color_instr = Color(*bg_color)
+            rect = Rectangle(pos=(cont.x + dp(1), cont.y + dp(1)), size=(max(0, cont.width - dp(2)), max(0, cont.height - dp(2))))
+        cont._rect_border = rect_border
+        cont._rect = rect
+        cont._border_color_instr = border_color_instr
+        cont._bg_color_instr = bg_color_instr
+        cont._bg_color = bg_color
+        cont.bind(pos=lambda inst, *_: setattr(rect_border, 'pos', inst.pos),
+                  size=lambda inst, *_: setattr(rect_border, 'size', inst.size))
+        cont.bind(pos=lambda inst, *_: setattr(rect, 'pos', (inst.x + dp(1), inst.y + dp(1))),
+                  size=lambda inst, *_: setattr(rect, 'size', (max(0, inst.width - dp(2)), max(0, inst.height - dp(2)))))
+    except Exception:
+        cont._rect_border = None
+        cont._rect = None
+        cont._border_color_instr = None
+        cont._bg_color_instr = None
+        cont._bg_color = bg_color
+        pass
+    content = BoxLayout(orientation='horizontal', size_hint=(1,1))
+    lbl = L(text=text, size_hint=(1,1))
+    content.add_widget(lbl)
+    if rank == 1 or rank == 'last':
+        try:
+            from kivy.uix.image import Image
+            icon_w = None
+            _gold = 'assets/icons/trophy_gold.png'
+            _gray = 'assets/icons/trophy_gray.png'
+            if FA_FONT:
+                try:
+                    glyph = '\uf091'
+                    icon_w = Label(text=glyph, font_name=FA_FONT, font_size=sp(14), size_hint=(None,1), width=dp(20))
+                    icon_w.color = (1.0, 0.84, 0.0, 1) if rank == 1 else (0.6,0.6,0.63,1)
+                except Exception:
+                    pass
+            if icon_w is not None:
+                content.add_widget(icon_w)
+        except Exception:
+            pass
+    cont.add_widget(content)
+    return cont
+
+def BTN(text, **kw):
+    kw.setdefault("size_hint_y", None)
+    kw.setdefault("height", BTN_HEIGHT)
+    if FONT_NAME:
+        kw.setdefault("font_name", FONT_NAME)
+        kw.setdefault("font_size", SMALL_FONT)
+    btn = Button(text=text, **kw)
+    style_button(btn)
+    return btn
+
+class IconButton(ButtonBehavior, Widget):
+    def __init__(self, symbol: str = 'plus', **kw):
+        for _k in ('font_size', 'font_name', 'text', 'markup',
+                   'background_normal', 'background_down', 'background_color', 'color'):
+            if _k in kw:
+                kw.pop(_k, None)
+        kw.setdefault('size_hint', (None, None))
+        kw.setdefault('width', dp(36))
+        kw.setdefault('height', dp(36))
+        super().__init__(**kw)
+        self.symbol = symbol
+        self._bg_color_instruction = None
+        self._bg_ellipse = None
+        self._mark_graphics = []
+        self._mark_color_instruction = None
+        try:
+            with self.canvas.before:
+                self._bg_color_instruction = Color(*BTN_BG)
+                self._bg_ellipse = Ellipse(pos=self.pos, size=self.size)
+            with self.canvas:
+                self._mark_color_instruction = Color(*TEXT_COLOR)
+                lw = dp(2.5)
+                for _ in range(3):
+                    self._mark_graphics.append(Line(points=[], width=lw))
+        except Exception:
+            self._bg_color_instruction = None
+            self._bg_ellipse = None
+            self._mark_graphics = []
+        self.bind(pos=self._update_graphics, size=self._update_graphics)
+
+    def _update_graphics(self, *a):
+        try:
+            if self._bg_ellipse is not None:
+                self._bg_ellipse.pos = self.pos
+                self._bg_ellipse.size = self.size
+            cx = self.x + self.width / 2.0
+            cy = self.y + self.height / 2.0
+            w = self.width
+            h = self.height
+            pad = min(w, h) * 0.28
+            left = self.x + (w - pad) / 2.0
+            right = self.x + (w + pad) / 2.0
+            top = self.y + (h + pad) / 2.0
+            bottom = self.y + (h - pad) / 2.0
+
+            def set_line(i, pts):
+                try:
+                    if i < len(self._mark_graphics):
+                        self._mark_graphics[i].points = pts
+                except Exception:
+                    pass
+
+            for i in range(len(self._mark_graphics)):
+                set_line(i, [])
+            sym = (self.symbol or '').lower()
+            if sym in ('minus', '−', '➖'):
+                set_line(0, [left, cy, right, cy])
+            elif sym in ('plus', '+', '➕'):
+                set_line(0, [left, cy, right, cy]); set_line(1, [cx, bottom, cx, top])
+            elif sym in ('check', 'ok'):
+                x1 = self.x + w * 0.22; y1 = self.y + h * 0.45
+                x2 = self.x + w * 0.42; y2 = self.y + h * 0.30
+                x3 = self.x + w * 0.78; y3 = self.y + h * 0.70
+                set_line(0, [x1, y1, x2, y2, x3, y3])
+            elif sym in ('x', 'close'):
+                set_line(0, [left, bottom, right, top]); set_line(1, [left, top, right, bottom])
+            elif sym in ('play', 'triangle'):
+                x1 = self.x + w * 0.30; y1 = self.y + h * 0.20
+                x2 = self.x + w * 0.30; y2 = self.y + h * 0.80
+                x3 = self.x + w * 0.78; y3 = self.y + h * 0.50
+                set_line(0, [x1, y1, x2, y2, x3, y3, x1, y1])
+            else:
+                if self.symbol in ('➕','+'):
+                    set_line(0, [left, cy, right, cy]); set_line(1, [cx, bottom, cx, top])
+                elif self.symbol in ('➖','-'):
+                    set_line(0, [left, cy, right, cy])
+                else:
+                    set_line(0, [cx, cy, cx + 0.01, cy + 0.01])
+        except Exception:
+            pass
+
+    def on_press(self):
+        try:
+            if self._bg_color_instruction is not None:
+                r,g,b,a = BTN_BG
+                self._bg_color_instruction.rgba = (r,g,b,max(0.06, a * 1.8))
+        except Exception:
+            pass
+
+    def on_release(self):
+        try:
+            if self._bg_color_instruction is not None:
+                self._bg_color_instruction.rgba = BTN_BG
+        except Exception:
+            pass
+
+class IconTextButton(ButtonBehavior, BoxLayout):
+    def __init__(self, text: str = '', icon: str = None, **kwargs):
+        h = kwargs.pop('height', BTN_HEIGHT)
+        size_hint_y = kwargs.pop('size_hint_y', None)
+        super().__init__(orientation='horizontal', spacing=dp(8), padding=(dp(8), dp(6)), **kwargs)
+        self._raw_text = text or ''
+        try:
+            with self.canvas.before:
+                self._bg_color_instr = Color(*BTN_BG)
+                self._bg_rect = Rectangle(pos=self.pos, size=self.size)
+            self.bind(pos=lambda inst, *_: setattr(self._bg_rect, 'pos', inst.pos), size=lambda inst, *_: setattr(self._bg_rect, 'size', inst.size))
+        except Exception:
+            self._bg_color_instr = None
+            self._bg_rect = None
+        if icon:
+            def _map_icon(name: str):
+                if not name:
+                    return None
+                n = name.lower().replace('_','-')
+                mapping = {'content-save':'save','file-download':'save','file-upload':'import','import':'import','plus':'plus','close':'x','delete':'trash','trash':'trash','check':'check','play':'play'}
+                if n in mapping:
+                    return mapping[n]
+                if 'save' in n or 'download' in n or 'file' in n:
+                    return 'save'
+                if 'upload' in n or 'import' in n:
+                    return 'import'
+                if 'trash' in n or 'delete' in n:
+                    return 'trash'
+                if 'close' in n or 'cancel' in n or 'x' in n:
+                    return 'x'
+                if 'plus' in n or 'add' in n:
+                    return 'plus'
+                return None
+            mapped = _map_icon(icon)
+            icon_w = None
+            try:
+                if FA_FONT and mapped:
+                    glyph_map = {'save':'\uf0c7','import':'\uf093','export':'\uf093','plus':'\uf067','minus':'\uf068','trash':'\uf1f8','x':'\uf00d','check':'\uf00c','play':'\uf04b'}
+                    glyph = glyph_map.get(mapped)
+                    if glyph:
+                        icon_w = Label(text=glyph, font_name=FA_FONT, font_size=sp(16), size_hint=(None,None), size=(dp(28), dp(28)))
+                        try:
+                            icon_w.color = TEXT_COLOR
+                        except Exception:
+                            pass
+            except Exception:
+                icon_w = None
+            if icon_w is None:
+                icon_w = IconButton(mapped or (icon or '+'), width=dp(28), height=dp(28))
+                try:
+                    icon_w.disabled = True
+                except Exception:
+                    pass
+            self.add_widget(icon_w)
+        self._label = Label(text=self._raw_text, halign='left', valign='middle', size_hint_x=1)
+        try:
+            self._label.markup = True
+        except Exception:
+            pass
+        try:
+            if FONT_NAME:
+                self._label.font_name = FONT_NAME
+            self._label.font_size = SMALL_FONT
+            self._label.color = TEXT_COLOR
+            self._label.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+            try:
+                self._label.text_size = (self._label.width, self._label.height)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        self.add_widget(self._label)
+        try:
+            if size_hint_y is not None:
+                self.size_hint_y = size_hint_y
+            else:
+                self.size_hint_y = None
+                self.height = h
+        except Exception:
+            pass
+
+    @property
+    def text(self):
+        return self._label.text
+
+    @text.setter
+    def text(self, v):
+        try:
+            self._label.text = v
+        except Exception:
+            pass
+
+    def restyle(self):
+        try:
+            if getattr(self, 'disabled', False):
+                lbl_color = (1,1,1,0.8) if CURRENT_THEME == 'dark' else (0.45,0.45,0.45,1)
+            else:
+                lbl_color = (1,1,1,1) if CURRENT_THEME == 'dark' else TEXT_COLOR
+            try:
+                self._label.color = lbl_color
+            except Exception:
+                pass
+            try:
+                if hasattr(self, '_label'):
+                    if not getattr(self._label, 'text_size', None) or (isinstance(getattr(self._label, 'text_size', None), (list, tuple)) and None in getattr(self._label, 'text_size', (None, None))):
+                        try:
+                            self._label.text_size = (self._label.width, self._label.height)
+                        except Exception:
+                            pass
+                    try:
+                        if hasattr(self._label, 'texture_update'):
+                            try:
+                                self._label.texture_update()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            if getattr(self, '_bg_color_instr', None) is not None:
+                try:
+                    self._bg_color_instr.rgba = BTN_BG
+                except Exception:
+                    pass
+            for ch in getattr(self, 'children', []):
+                if hasattr(ch, '_mark_color_instruction') and ch._mark_color_instruction is not None:
+                    try:
+                        ch._mark_color_instruction.rgba = ACCENT if CURRENT_THEME == 'dark' else TEXT_COLOR
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+class NameTouchable(Label):
+    def __init__(self, row_container=None, **kw):
+        try:
+            if FONT_NAME:
+                kw.setdefault('font_name', FONT_NAME)
+        except Exception:
+            pass
+        kw.setdefault('font_size', SMALL_FONT)
+        kw.setdefault('color', TEXT_COLOR)
+        kw.setdefault('halign', 'left')
+        kw.setdefault('valign', 'middle')
+        super().__init__(**kw)
+        self.row_container = row_container
+        try:
+            self.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+        except Exception:
+            pass
+        self._longpress_ev = None
+        self._touch = None
+        self._start_pos = (0,0)
+
+    def on_touch_down(self, touch):
+        if not self.collide_point(*touch.pos):
+            return super().on_touch_down(touch)
+        try:
+            self._touch = touch
+            self._start_pos = (touch.x, touch.y)
+            self._longpress_ev = Clock.schedule_once(self._do_longpress, 0.28)
+            touch.grab(self)
+        except Exception:
+            pass
+        return True
+
+    def on_touch_move(self, touch):
+        if touch is not self._touch:
+            return super().on_touch_move(touch)
+        try:
+            if self._longpress_ev is not None:
+                dx = abs(touch.x - self._start_pos[0])
+                dy = abs(touch.y - self._start_pos[1])
+                if dx > dp(8) or dy > dp(8):
+                    try:
+                        self._longpress_ev.cancel()
+                    except Exception:
+                        pass
+                    self._longpress_ev = None
+                    try:
+                        touch.ungrab(self)
+                    except Exception:
+                        pass
+                    return super().on_touch_move(touch)
+        except Exception:
+            pass
+        return True
+
+    def on_touch_up(self, touch):
+        if touch is not self._touch:
+            return super().on_touch_up(touch)
+        try:
+            if self._longpress_ev is not None:
+                try:
+                    self._longpress_ev.cancel()
+                except Exception:
+                    pass
+                self._longpress_ev = None
+            try:
+                touch.ungrab(self)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return True
+
+    def _do_longpress(self, dt):
+        try:
+            parent = self
+            while parent is not None and not hasattr(parent, 'build_left_inputs'):
+                parent = parent.parent
+            if parent is not None and hasattr(parent, '_start_row_drag'):
+                parent._start_row_drag(self.row_container, self._touch)
+        except Exception:
+            pass
