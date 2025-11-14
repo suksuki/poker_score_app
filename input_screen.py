@@ -1,85 +1,88 @@
 from typing import Dict, List
-
-from kivy.metrics import sp, dp
-from theme import ROW_HEIGHT
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
-from kivy.uix.popup import Popup
-from kivy.uix.screenmanager import Screen
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.gridlayout import GridLayout
-
-from widgets import L, ScoreInputItem, IconButton, TrophyWidget
-from kivy.app import App
-from kivy.core.window import Window
-from kivy.clock import Clock
-from kivy.uix.boxlayout import BoxLayout as KBox
-from kivy.graphics import Color, Rectangle
-
-
-class InputScreen(Screen):
-	"""Minimal Input screen with a top notice and an empty middle area.
-
-	Intentionally minimal: only a top notice is shown per your request. A few
-	lightweight placeholders are kept so other parts of the app can call into
-	this screen without crashing.
-	"""
-
-	def __init__(self, **kwargs):
-		super().__init__(**kwargs)
-
-		# State containers (kept for future use)
-		self.players: List[str] = []
-		self.hand_inputs: Dict[str, object] = {}
-		self.dun_inputs: Dict[str, object] = {}
-		# map player name -> row widget (for robust lookup)
-		self.row_by_name: Dict[str, object] = {}
-
-		root = BoxLayout(orientation="vertical")
-
-		# Top notice (user requested)
-		self.notice = L(
-			"每位玩家基础分100分，每顿30分，扣除100分后，总分应该为0",
-			font_size=sp(18),
-			size_hint_y=None,
-			height=sp(44),
-		)
-		root.add_widget(self.notice)
-
-		# Middle: intentionally empty flexible area
-		# Middle: player rows live inside a ScrollView -> GridLayout
-		self.middle = ScrollView()
-		self.rows_container = GridLayout(cols=1, spacing=8, size_hint_y=None)
-		self.rows_container.bind(minimum_height=self.rows_container.setter('height'))
-		self.middle.add_widget(self.rows_container)
-		root.add_widget(self.middle)
-
-		# Do not prefill player rows here — names come from SetupScreen via set_players()
-
-		self.add_widget(root)
-
-	def set_players(self, players: List[str]):
-		"""Store the players list and clear previous input maps."""
-		# store and clear previous inputs
-		self.players = list(players) if players else []
-		self.hand_inputs.clear()
-		self.dun_inputs.clear()
-		self.row_by_name.clear()
-		# Debug: print received players so we can verify SetupScreen handed them over
+		"""Follow pointer: move the overlay row and allow placeholder to swap
+		with the row under the pointer (live swap behavior).
+		"""
 		try:
-			print(f"[DEBUG] InputScreen.set_players called with: {self.players}")
+			mx, my = Window.mouse_pos
+			row = getattr(self, '_simple_drag_row', None)
+			if row is None:
+				return
+			# move overlay row to follow pointer
+			row.pos = (row.pos[0], my - row.height / 2)
+			# prepare base list (original top->bottom without dragged row)
+			orig_list = list(getattr(self, '_simple_original_order', []))
+			# remove dragged row if present
+			try:
+				if row in orig_list:
+					orig_list.remove(row)
+			except Exception:
+				pass
+			# compute which index (in orig_list) is under pointer
+			desired = None
+			for idx, child in enumerate(orig_list):
+				try:
+					cx, cy = child.to_window(child.x, child.y)
+					top = cy + child.height
+					bottom = cy
+					# if pointer Y is within this child's vertical bounds, choose this index
+					if bottom <= my <= top:
+						desired = idx
+						break
+				except Exception:
+					continue
+			if desired is None:
+				# if no direct hit, decide above-all or below-all
+				if orig_list:
+					first_cy = orig_list[0].to_window(orig_list[0].x, orig_list[0].y)[1]
+					if my > first_cy + orig_list[0].height:
+						desired = 0
+					else:
+						desired = len(orig_list)
+				else:
+					desired = 0
+			# current placeholder index in rows_container (top->bottom)
+			cur_ph_idx = None
+			ph = getattr(self, '_simple_placeholder', None)
+			try:
+				children_tb = list(self.rows_container.children)[::-1]
+				if ph in children_tb:
+					cur_ph_idx = children_tb.index(ph)
+			except Exception:
+				cur_ph_idx = None
+			# if desired differs from current placeholder spot, rebuild order with swap
+			if cur_ph_idx != desired:
+				m = len(orig_list)
+				slots = [None] * (m + 1)
+				# place placeholder at desired
+				if 0 <= desired <= m:
+					slots[desired] = ph
+				# find target_row (the one originally at desired) if any
+				target_row = None
+				if 0 <= desired < m:
+					target_row = orig_list[desired]
+				# if swap needed (desired != orig_idx) place target_row at orig_idx
+				orig_idx = getattr(self, '_simple_orig_index', None)
+				if target_row is not None and orig_idx is not None and desired != orig_idx:
+					insert_pos = orig_idx if desired > orig_idx else (orig_idx - 1 if orig_idx > 0 else 0)
+					if 0 <= insert_pos <= m:
+						slots[insert_pos] = target_row
+				# fill remaining slots with items from orig_list in order skipping target_row
+				fill_idx = 0
+				for item in orig_list:
+					if item is target_row:
+						continue
+					# find next empty slot
+					while fill_idx <= m and slots[fill_idx] is not None:
+						fill_idx += 1
+					if fill_idx <= m:
+						slots[fill_idx] = item
+				# render new slots
+				try:
+					self._render_rows_from_order(slots)
+				except Exception:
+					pass
 		except Exception:
 			pass
-		# rebuild rows according to players length and pass the names so they are filled
-		self._build_player_rows(len(self.players), names=self.players)
-
-	def _build_player_rows(self, n: int, names: List[str] = None):
-		# clear
-		self.rows_container.clear_widgets()
-		if n <= 0:
-			return
-		for i in range(1, n + 1):
-			# horizontal row: rank | trophy | input container
 			row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(56), spacing=8)
 			# rank (use styled label so color/font are correct)
 			rank_lbl = L(text=str(i), font_size=sp(16), size_hint_x=None, width=dp(36))
@@ -317,6 +320,8 @@ class InputScreen(Screen):
 		print(f"[DEBUG] inserting placeholder at position {insert_at} (0-based in top->bottom list) after removing the dragged row")
 		new_order.insert(insert_at, ph)
 		self._simple_placeholder = ph
+		# remember original index for swap calculations
+		self._simple_orig_index = insert_at
 		# render with placeholder. The placeholder sits in the same slot as the
 		# original row; the dragged row will be shown as an overlay above it.
 		self._render_rows_from_order(new_order)
@@ -366,15 +371,86 @@ class InputScreen(Screen):
 		Window.bind(on_touch_up=self._simple_drag_release)
 
 	def _simple_drag_poll(self, dt):
-		"""Follow pointer: move the overlay row to follow the mouse Y.
-		The placeholder remains at the original row's slot (under the overlay).
+		"""Follow pointer: move the overlay row and allow placeholder to swap
+		with the row under the pointer (live swap behavior).
 		"""
 		try:
 			mx, my = Window.mouse_pos
 			row = getattr(self, '_simple_drag_row', None)
 			if row is None:
 				return
+			# move overlay row to follow pointer
 			row.pos = (row.pos[0], my - row.height / 2)
+			# prepare base list (original top->bottom without dragged row)
+			orig_list = list(getattr(self, '_simple_original_order', []))
+			# remove dragged row if present
+			try:
+				if row in orig_list:
+					orig_list.remove(row)
+			except Exception:
+				pass
+			# compute which index (in orig_list) is under pointer
+			desired = None
+			for idx, child in enumerate(orig_list):
+				try:
+					cx, cy = child.to_window(child.x, child.y)
+					top = cy + child.height
+					bottom = cy
+					if bottom <= my <= top:
+						desired = idx
+						break
+				except Exception:
+					continue
+			if desired is None:
+				if orig_list:
+					first_cy = orig_list[0].to_window(orig_list[0].x, orig_list[0].y)[1]
+					if my > first_cy + orig_list[0].height:
+						desired = 0
+					else:
+						desired = len(orig_list)
+				else:
+					desired = 0
+			# current placeholder index in rows_container (top->bottom)
+			cur_ph_idx = None
+			ph = getattr(self, '_simple_placeholder', None)
+			try:
+				children_tb = list(self.rows_container.children)[::-1]
+				if ph in children_tb:
+					cur_ph_idx = children_tb.index(ph)
+			except Exception:
+				cur_ph_idx = None
+			# if desired differs from current placeholder spot, rebuild order with swap
+			if cur_ph_idx != desired:
+				m = len(orig_list)
+				slots = [None] * (m + 1)
+				# place placeholder at desired
+				if 0 <= desired <= m:
+					slots[desired] = ph
+				# find target_row (the one originally at desired) if any
+				target_row = None
+				if 0 <= desired < m:
+					target_row = orig_list[desired]
+				# if swap needed (desired != orig_idx) place target_row at orig_idx
+				orig_idx = getattr(self, '_simple_orig_index', None)
+				if target_row is not None and orig_idx is not None and desired != orig_idx:
+					# compute insert position in slots for target_row considering removal
+					insert_pos = orig_idx if desired > orig_idx else (orig_idx - 1 if orig_idx > 0 else 0)
+					if 0 <= insert_pos <= m:
+						slots[insert_pos] = target_row
+				# fill remaining slots with items from orig_list in order skipping target_row
+				fill_idx = 0
+				for item in orig_list:
+					if item is target_row:
+						continue
+					while fill_idx <= m and slots[fill_idx] is not None:
+						fill_idx += 1
+					if fill_idx <= m:
+						slots[fill_idx] = item
+				# render new slots
+				try:
+					self._render_rows_from_order(slots)
+				except Exception:
+					pass
 		except Exception:
 			pass
 
