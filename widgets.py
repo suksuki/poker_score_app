@@ -148,6 +148,23 @@ def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
     cont.add_widget(content)
     return cont
 
+
+def TrophyWidget(rank=None, size=36):
+    """Return a simple trophy widget without background for inline use.
+
+    If `rank` is 1 or 'last' the widget shows a colored trophy glyph; else empty.
+    """
+    try:
+        font_size = sp(14)
+    except Exception:
+        font_size = 14
+    if rank == 1:
+        return L(text='🏆', font_size=font_size, color=(1.0, 0.84, 0.0, 1), size_hint_x=None, width=dp(size))
+    elif rank == 'last':
+        return L(text='🏆', font_size=font_size, color=(0.6, 0.6, 0.63, 1), size_hint_x=None, width=dp(size))
+    else:
+        return L(text='', size_hint_x=None, width=dp(size))
+
 def BTN(text, **kw):
     kw.setdefault("size_hint_y", None)
     kw.setdefault("height", BTN_HEIGHT)
@@ -388,7 +405,13 @@ class IconTextButton(ButtonBehavior, BoxLayout):
             pass
 
 class NameTouchable(Label):
-    def __init__(self, row_container=None, **kw):
+    """Label that supports long-press detection.
+
+    Dispatches an 'on_long_press' event with signature (self, touch).
+    """
+    __events__ = ('on_long_press',)
+
+    def __init__(self, row_container=None, long_press_time=0.5, **kw):
         try:
             if FONT_NAME:
                 kw.setdefault('font_name', FONT_NAME)
@@ -399,73 +422,150 @@ class NameTouchable(Label):
         kw.setdefault('halign', 'left')
         kw.setdefault('valign', 'middle')
         super().__init__(**kw)
-        self.row_container = row_container
-        try:
-            self.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-        except Exception:
-            pass
-        self._longpress_ev = None
+        from kivy.clock import Clock
+        self._lp_time = float(long_press_time)
+        self._lp_ev = None
         self._touch = None
-        self._start_pos = (0,0)
+        self._long_pressed = False
 
     def on_touch_down(self, touch):
         if not self.collide_point(*touch.pos):
             return super().on_touch_down(touch)
         try:
+            from kivy.clock import Clock
             self._touch = touch
-            self._start_pos = (touch.x, touch.y)
-            self._longpress_ev = Clock.schedule_once(self._do_longpress, 0.28)
-            touch.grab(self)
+            self._lp_ev = Clock.schedule_once(lambda dt: self._do_long_press(touch), self._lp_time)
         except Exception:
-            pass
-        return True
+            self._lp_ev = None
+        return super().on_touch_down(touch)
 
     def on_touch_move(self, touch):
-        if touch is not self._touch:
-            return super().on_touch_move(touch)
-        try:
-            if self._longpress_ev is not None:
-                dx = abs(touch.x - self._start_pos[0])
-                dy = abs(touch.y - self._start_pos[1])
-                if dx > dp(8) or dy > dp(8):
-                    try:
-                        self._longpress_ev.cancel()
-                    except Exception:
-                        pass
-                    self._longpress_ev = None
-                    try:
-                        touch.ungrab(self)
-                    except Exception:
-                        pass
-                    return super().on_touch_move(touch)
-        except Exception:
-            pass
-        return True
-
-    def on_touch_up(self, touch):
-        if touch is not self._touch:
-            return super().on_touch_up(touch)
-        try:
-            if self._longpress_ev is not None:
-                try:
-                    self._longpress_ev.cancel()
-                except Exception:
-                    pass
-                self._longpress_ev = None
+        if self._lp_ev is not None and touch is self._touch and not self.collide_point(*touch.pos):
             try:
-                touch.ungrab(self)
+                self._lp_ev.cancel()
             except Exception:
                 pass
-        except Exception:
-            pass
-        return True
+            self._lp_ev = None
+        return super().on_touch_move(touch)
 
-    def _do_longpress(self, dt):
+    def on_touch_up(self, touch):
+        if self._lp_ev is not None:
+            try:
+                self._lp_ev.cancel()
+            except Exception:
+                pass
+            self._lp_ev = None
+        self._touch = None
+        return super().on_touch_up(touch)
+
+    def _do_long_press(self, touch):
+        self._lp_ev = None
+        self._long_pressed = True
         try:
-            parent = self
-            while parent is not None and not hasattr(parent, 'build_left_inputs'):
-                parent = parent.parent
-            if parent is not None and hasattr(parent, '_start_row_drag'):
-                parent._start_row_drag(self.row_container, self._touch)
+            self.dispatch('on_long_press', touch)
         except Exception:
             pass
+
+    def on_long_press(self, touch):
+        pass
+
+
+# ---------------------- Score input item (new) ----------------------
+class ScoreInputItem(BoxLayout):
+    """A reusable container for per-player score inputs.
+
+    Layout (horizontal): [base_input] [minus_btn] [dun_input] [plus_btn]
+
+    Designed so the whole widget can be treated as a single draggable
+    container in the future.
+    """
+
+    def __init__(self, base: int = 100, dun: int = 0, dun_score: int = 30, name: str = '', **kw):
+        super().__init__(orientation='horizontal', spacing=dp(8), **kw)
+
+        self.base_value = base
+        self.dun_value = dun
+        self.dun_score = dun_score
+
+        # optional player name label at the start
+        try:
+            # use a touchable name widget so long-press can be detected safely
+            self.name_label = NameTouchable(text=(name or ''), size_hint_x=None, width=dp(120), halign='left', valign='middle')
+            try:
+                self.name_label.bind(on_long_press=self._on_name_long_press)
+            except Exception:
+                pass
+            try:
+                self.name_label.bind(on_touch_up=self._on_name_touch_up)
+            except Exception:
+                pass
+            self.add_widget(self.name_label)
+        except Exception:
+            self.name_label = None
+
+        # base score input
+        self.base_input = TI(text=str(self.base_value))
+        self.base_input.size_hint_x = None
+        self.base_input.width = dp(80)
+        self.add_widget(self.base_input)
+
+        # minus button
+        self.minus_btn = IconButton(symbol='minus', width=dp(36), height=dp(36))
+        self.minus_btn.bind(on_release=self._on_minus)
+        self.add_widget(self.minus_btn)
+
+        # dun count input
+        self.dun_input = TI(text=str(self.dun_value))
+        self.dun_input.size_hint_x = None
+        self.dun_input.width = dp(60)
+        self.add_widget(self.dun_input)
+
+        # plus button
+        self.plus_btn = IconButton(symbol='plus', width=dp(36), height=dp(36))
+        self.plus_btn.bind(on_release=self._on_plus)
+        self.add_widget(self.plus_btn)
+
+    def _on_plus(self, *_):
+        try:
+            v = int(self.dun_input.text or '0')
+            v += 1
+            self.dun_input.text = str(v)
+        except Exception:
+            self.dun_input.text = '0'
+
+    def _on_minus(self, *_):
+        try:
+            v = int(self.dun_input.text or '0')
+            v = max(0, v - 1)
+            self.dun_input.text = str(v)
+        except Exception:
+            self.dun_input.text = '0'
+
+    # long-press handlers
+    def _on_name_long_press(self, inst, touch):
+        try:
+            # visual cue: make the whole input item semi-transparent
+            self._long_pressed = True
+            self.opacity = 0.5
+        except Exception:
+            pass
+
+    def _on_name_touch_up(self, inst, touch):
+        try:
+            if getattr(self, '_long_pressed', False):
+                self._long_pressed = False
+                self.opacity = 1.0
+        except Exception:
+            pass
+
+    def get_values(self):
+        try:
+            base = int(self.base_input.text or '0')
+        except Exception:
+            base = self.base_value
+        try:
+            dun = int(self.dun_input.text or '0')
+        except Exception:
+            dun = self.dun_value
+        return {'base': base, 'dun': dun, 'dun_score': self.dun_score}
+        return {'base': base, 'dun': dun, 'dun_score': self.dun_score}
