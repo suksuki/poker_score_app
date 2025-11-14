@@ -266,13 +266,13 @@ class InputScreen(Screen):
 			# convert pos to rows_container local coords
 			local_x, local_y = self.rows_container.to_widget(*pos)
 			children_tb = list(self.rows_container.children)[::-1]
-			# determine index where placeholder should be placed
-			target = 0
+			# determine index where placeholder should be placed (0..len)
+			target = len(children_tb)
 			for idx, ch in enumerate(children_tb):
 				cy = ch.y + ch.height / 2
 				if local_y > cy:
+					target = idx
 					break
-				target = idx + 1
 			# clamp
 			target = max(0, min(len(children_tb), target))
 			# find current placeholder index in children_tb
@@ -284,12 +284,10 @@ class InputScreen(Screen):
 				# move placeholder in our order list
 				try:
 					order = [w for w in self._rows_order if w is not self._drag_row]
-					# ensure placeholder present
-					if self._drag_placeholder not in order:
-						order.insert(target, self._drag_placeholder)
-					else:
+					# remove placeholder if already present
+					if self._drag_placeholder in order:
 						order.remove(self._drag_placeholder)
-						order.insert(target, self._drag_placeholder)
+					order.insert(target, self._drag_placeholder)
 					self._rows_order = order
 					self._render_rows_from_order()
 				except Exception:
