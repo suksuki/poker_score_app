@@ -32,6 +32,8 @@ class InputScreen(Screen):
 		self.players: List[str] = []
 		self.hand_inputs: Dict[str, object] = {}
 		self.dun_inputs: Dict[str, object] = {}
+		# map player name -> row widget (for robust lookup)
+		self.row_by_name: Dict[str, object] = {}
 
 		root = BoxLayout(orientation="vertical")
 
@@ -62,6 +64,7 @@ class InputScreen(Screen):
 		self.players = list(players) if players else []
 		self.hand_inputs.clear()
 		self.dun_inputs.clear()
+		self.row_by_name.clear()
 		# Debug: print received players so we can verify SetupScreen handed them over
 		try:
 			print(f"[DEBUG] InputScreen.set_players called with: {self.players}")
@@ -115,6 +118,8 @@ class InputScreen(Screen):
 			row.trophy_label = w
 			row.name_label = container.name_label
 			row.input_container = container
+			# remember row by stable key (name or playerN)
+			self.row_by_name[key] = row
 
 			self.rows_container.add_widget(row)
 		# Debug: show what was rendered and what input mappings we saved
@@ -134,11 +139,46 @@ class InputScreen(Screen):
 
 		# bind long-press on name to start a simple overlay drag (no reordering yet)
 		try:
+			# bind a single handler that will locate the row at runtime
+			def _find_row_for_widget(widget):
+				"""Walk up from `widget` to find the direct child of rows_container.
+				Returns the row BoxLayout or None.
+				"""
+				w = widget
+				try:
+					while w is not None and getattr(w, 'parent', None) is not None:
+						p = w.parent
+						if p is self.rows_container:
+							return w
+						w = p
+				except Exception:
+					return None
+				return None
+
+			def _on_name_long_press(inst, touch):
+				# inst is the NameTouchable; find its row parent and start drag
+				row = _find_row_for_widget(inst)
+				# fallback: if we couldn't find row via parent chain, try lookup by name text
+				if row is None:
+					try:
+						name_text = getattr(inst, 'text', '').strip()
+						if name_text:
+							row = self.row_by_name.get(name_text)
+					except Exception:
+						row = None
+				try:
+					name = getattr(getattr(row, 'name_label', None), 'text', '<no-name>') if row is not None else '<no-row>'
+					print(f"[DEBUG] on_name_long_press for row name: {name}")
+				except Exception:
+					print("[DEBUG] on_name_long_press for unknown row")
+				if row is not None:
+					self._start_simple_drag(row, touch)
+
 			for row in list(self.rows_container.children)[::-1]:
 				nl = getattr(row, 'name_label', None)
 				if nl is not None and hasattr(nl, 'bind'):
 					try:
-						nl.bind(on_long_press=lambda inst, touch, r=row: self._start_simple_drag(r, touch))
+						nl.bind(on_long_press=_on_name_long_press)
 					except Exception:
 						pass
 		except Exception:
@@ -176,10 +216,40 @@ class InputScreen(Screen):
 
 	# helpers to render a given top->bottom order list into rows_container
 	def _render_rows_from_order(self, top_down_list: List[object]):
+		# debug: show the top->bottom list we are about to render
+		try:
+			names = []
+			for w in top_down_list:
+				try:
+					if w is getattr(self, '_simple_placeholder', None):
+						names.append('<ph>')
+					else:
+						names.append(getattr(getattr(w, 'name_label', None), 'text', '<widget>'))
+				except Exception:
+					names.append('<err>')
+			print(f"[DEBUG] _render_rows_from_order top->bottom names: {names}")
+		except Exception:
+			pass
+		# actually render
 		try:
 			self.rows_container.clear_widgets()
-			for w in reversed(top_down_list):
+			# add in top->bottom order so children[::-1] yields the same top->bottom
+			for w in top_down_list:
 				self.rows_container.add_widget(w)
+		except Exception:
+			pass
+		# debug: after adding, show actual children top->bottom
+		try:
+			actual = []
+			for r in self.rows_container.children[::-1]:
+				try:
+					if r is getattr(self, '_simple_placeholder', None):
+						actual.append('<ph>')
+					else:
+						actual.append(getattr(getattr(r, 'name_label', None), 'text', '<widget>'))
+				except Exception:
+					actual.append('<err>')
+			print(f"[DEBUG] rows_container children after render (top->bottom): {actual}")
 		except Exception:
 			pass
 
@@ -190,6 +260,24 @@ class InputScreen(Screen):
 		the row as an overlay following the pointer, on release restore original position.
 		This does NOT change ordering permanently.
 		"""
+		# debug: report which row triggered the drag and the current rows order
+		try:
+			name = getattr(getattr(row, 'name_label', None), 'text', '<no-name>')
+			print(f"[DEBUG] _start_simple_drag called for row name: {name}")
+		except Exception:
+			print("[DEBUG] _start_simple_drag called for row: <unknown>")
+		# inspect current top->bottom list and indexes for debugging
+		try:
+			children_tb = list(self.rows_container.children)[::-1]
+			top_names = [getattr(getattr(r, 'name_label', None), 'text', '<no-name>') for r in children_tb]
+			print(f"[DEBUG] rows_container top->bottom names: {top_names}")
+			try:
+				orig_idx = children_tb.index(row)
+			except Exception:
+				orig_idx = None
+			print(f"[DEBUG] computed orig_idx={orig_idx} for row {name} (row obj={row})")
+		except Exception:
+			pass
 		if getattr(self, '_simple_drag_active', False):
 			return
 		self._simple_drag_active = True
@@ -215,10 +303,22 @@ class InputScreen(Screen):
 			pass
 		# build new order with placeholder
 		new_order = list(children_tb)
-		insert_at = min(len(new_order), orig_idx + 1)
+		# remove the dragged row from the list first (we'll render it as overlay)
+		try:
+			if row in new_order:
+				new_order.remove(row)
+		except Exception:
+			pass
+		# now insert placeholder where the row used to be: at orig_idx
+		if orig_idx is None:
+			insert_at = len(new_order)
+		else:
+			insert_at = min(len(new_order), orig_idx)
+		print(f"[DEBUG] inserting placeholder at position {insert_at} (0-based in top->bottom list) after removing the dragged row")
 		new_order.insert(insert_at, ph)
 		self._simple_placeholder = ph
-		# render with placeholder
+		# render with placeholder. The placeholder sits in the same slot as the
+		# original row; the dragged row will be shown as an overlay above it.
 		self._render_rows_from_order(new_order)
 
 		# compute overlay position (use window coords of original row)
@@ -231,13 +331,30 @@ class InputScreen(Screen):
 		try:
 			try:
 				self.rows_container.remove_widget(row)
+				# debug: show children after removal
+				try:
+					actual = [getattr(getattr(r, 'name_label', None), 'text', '<ph>' if r is getattr(self, '_simple_placeholder', None) else '<widget>') for r in self.rows_container.children[::-1]]
+					print(f"[DEBUG] rows_container children after remove_widget (top->bottom): {actual}")
+				except Exception:
+					pass
 			except Exception:
 				pass
 			row.size_hint = (None, None)
 			row.width = self.rows_container.width
 			row.height = getattr(row, 'height', dp(56))
 			row.pos = (win_x, win_y)
+			# debug: show root children count before adding overlay
+			try:
+				root_children_before = len(App.get_running_app().root.children)
+				print(f"[DEBUG] root children before add overlay: {root_children_before}")
+			except Exception:
+				pass
 			App.get_running_app().root.add_widget(row)
+			try:
+				root_children_after = len(App.get_running_app().root.children)
+				print(f"[DEBUG] root children after add overlay: {root_children_after}")
+			except Exception:
+				pass
 		except Exception:
 			# abort and restore
 			self._render_rows_from_order(self._simple_original_order)
@@ -249,6 +366,9 @@ class InputScreen(Screen):
 		Window.bind(on_touch_up=self._simple_drag_release)
 
 	def _simple_drag_poll(self, dt):
+		"""Follow pointer: move the overlay row to follow the mouse Y.
+		The placeholder remains at the original row's slot (under the overlay).
+		"""
 		try:
 			mx, my = Window.mouse_pos
 			row = getattr(self, '_simple_drag_row', None)
@@ -269,7 +389,7 @@ class InputScreen(Screen):
 			Window.unbind(on_touch_up=self._simple_drag_release)
 		except Exception:
 			pass
-		# remove overlay and restore original ordering (placeholder removed)
+		# remove overlay from root
 		try:
 			root = App.get_running_app().root
 			try:
@@ -278,11 +398,39 @@ class InputScreen(Screen):
 				pass
 		except Exception:
 			pass
-		# restore original order
+		# compute final order: replace placeholder with the dragged row (permanent move)
 		try:
-			self._render_rows_from_order(self._simple_original_order)
+			# current rows inside rows_container (top->bottom)
+			current = list(self.rows_container.children)[::-1]
+			ph = getattr(self, '_simple_placeholder', None)
+			if ph in current:
+				idx = current.index(ph)
+				new_order = list(current)
+				# insert the dragged row into placeholder slot
+				new_order[idx] = self._simple_drag_row
+			else:
+				# fallback: append to original order
+				new_order = list(self._simple_original_order) if getattr(self, '_simple_original_order', None) is not None else list(current)
+				# ensure dragged row is present once
+				if self._simple_drag_row in new_order:
+					# already present: leave as-is
+					pass
+				else:
+					new_order.append(self._simple_drag_row)
+			# restore reasonable sizing for the row before re-adding
+			try:
+				row = self._simple_drag_row
+				row.size_hint = (1, None)
+			except Exception:
+				pass
+			# render final order
+			self._render_rows_from_order(new_order)
 		except Exception:
-			pass
+			# as a last resort, restore original order
+			try:
+				self._render_rows_from_order(self._simple_original_order)
+			except Exception:
+				pass
 		# clear state and visual
 		try:
 			if getattr(self._simple_drag_row, 'opacity', None) is not None:
