@@ -10,6 +10,11 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
 
 from widgets import L, ScoreInputItem, IconButton, TrophyWidget
+from kivy.app import App
+from kivy.core.window import Window
+from kivy.clock import Clock
+from kivy.uix.boxlayout import BoxLayout as KBox
+from kivy.graphics import Color, Rectangle
 
 
 class InputScreen(Screen):
@@ -127,6 +132,18 @@ class InputScreen(Screen):
 		except Exception:
 			pass
 
+		# bind long-press on name to start a simple overlay drag (no reordering yet)
+		try:
+			for row in list(self.rows_container.children)[::-1]:
+				nl = getattr(row, 'name_label', None)
+				if nl is not None and hasattr(nl, 'bind'):
+					try:
+						nl.bind(on_long_press=lambda inst, touch, r=row: self._start_simple_drag(r, touch))
+					except Exception:
+						pass
+		except Exception:
+			pass
+
 	def get_current_inputs(self):
 		"""Return a mapping player_key -> values dict from the current input rows.
 
@@ -156,6 +173,126 @@ class InputScreen(Screen):
 			except Exception:
 				pass
 		return res
+
+	# helpers to render a given top->bottom order list into rows_container
+	def _render_rows_from_order(self, top_down_list: List[object]):
+		try:
+			self.rows_container.clear_widgets()
+			for w in reversed(top_down_list):
+				self.rows_container.add_widget(w)
+		except Exception:
+			pass
+
+	# ---------------- Simple overlay drag (no reordering) ----------------
+
+	def _start_simple_drag(self, row, touch):
+		"""Start a simple drag: show a blue placeholder below this row, move
+		the row as an overlay following the pointer, on release restore original position.
+		This does NOT change ordering permanently.
+		"""
+		if getattr(self, '_simple_drag_active', False):
+			return
+		self._simple_drag_active = True
+		self._simple_drag_row = row
+
+		# capture top->bottom snapshot
+		children_tb = list(self.rows_container.children)[::-1]
+		try:
+			orig_idx = children_tb.index(row)
+		except Exception:
+			orig_idx = 0
+		self._simple_original_order = children_tb
+
+		# create placeholder to appear below the row (i.e., at orig_idx+1)
+		ph = KBox(size_hint_y=None, height=getattr(row, 'height', dp(56)))
+		try:
+			with ph.canvas.before:
+				Color(0.0, 0.45, 0.78, 0.18)
+				rect = Rectangle(pos=ph.pos, size=ph.size)
+				ph._ph_rect = rect
+				ph.bind(pos=lambda inst, *_: setattr(ph._ph_rect, 'pos', inst.pos), size=lambda inst, *_: setattr(ph._ph_rect, 'size', inst.size))
+		except Exception:
+			pass
+		# build new order with placeholder
+		new_order = list(children_tb)
+		insert_at = min(len(new_order), orig_idx + 1)
+		new_order.insert(insert_at, ph)
+		self._simple_placeholder = ph
+		# render with placeholder
+		self._render_rows_from_order(new_order)
+
+		# compute overlay position (use window coords of original row)
+		try:
+			win_x, win_y = row.to_window(row.x, row.y)
+		except Exception:
+			win_x, win_y = (0, 0)
+
+		# remove the row from container and add to app root as overlay
+		try:
+			try:
+				self.rows_container.remove_widget(row)
+			except Exception:
+				pass
+			row.size_hint = (None, None)
+			row.width = self.rows_container.width
+			row.height = getattr(row, 'height', dp(56))
+			row.pos = (win_x, win_y)
+			App.get_running_app().root.add_widget(row)
+		except Exception:
+			# abort and restore
+			self._render_rows_from_order(self._simple_original_order)
+			self._simple_drag_active = False
+			return
+
+		# follow pointer via polling
+		self._simple_drag_ev = Clock.schedule_interval(self._simple_drag_poll, 0)
+		Window.bind(on_touch_up=self._simple_drag_release)
+
+	def _simple_drag_poll(self, dt):
+		try:
+			mx, my = Window.mouse_pos
+			row = getattr(self, '_simple_drag_row', None)
+			if row is None:
+				return
+			row.pos = (row.pos[0], my - row.height / 2)
+		except Exception:
+			pass
+
+	def _simple_drag_release(self, win, touch):
+		# stop poll and unbind
+		try:
+			if getattr(self, '_simple_drag_ev', None) is not None:
+				self._simple_drag_ev.cancel()
+		except Exception:
+			pass
+		try:
+			Window.unbind(on_touch_up=self._simple_drag_release)
+		except Exception:
+			pass
+		# remove overlay and restore original ordering (placeholder removed)
+		try:
+			root = App.get_running_app().root
+			try:
+				root.remove_widget(self._simple_drag_row)
+			except Exception:
+				pass
+		except Exception:
+			pass
+		# restore original order
+		try:
+			self._render_rows_from_order(self._simple_original_order)
+		except Exception:
+			pass
+		# clear state and visual
+		try:
+			if getattr(self._simple_drag_row, 'opacity', None) is not None:
+				self._simple_drag_row.opacity = 1.0
+		except Exception:
+			pass
+		self._simple_drag_active = False
+		self._simple_drag_row = None
+		self._simple_original_order = None
+		self._simple_placeholder = None
 
 	# Lightweight placeholders so global import/export buttons can call these.
 	def import_json_dialog(self):
