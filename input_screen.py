@@ -13,6 +13,7 @@ from widgets import L, ScoreInputItem, IconButton, TrophyWidget
 from kivy.core.window import Window
 from kivy.app import App
 from kivy.graphics import Color, Rectangle
+from kivy.clock import Clock
 
 
 class InputScreen(Screen):
@@ -193,6 +194,17 @@ class InputScreen(Screen):
 		orig_h = getattr(row, 'height', None) or dp(56)
 		self._drag_row.height = orig_h
 
+		# remove any stray placeholder from a previous aborted drag
+		try:
+			if getattr(self, '_drag_placeholder', None) is not None:
+				try:
+					self._rows_order = [w for w in getattr(self, '_rows_order', []) if w is not self._drag_placeholder]
+				except Exception:
+					pass
+				self._drag_placeholder = None
+		except Exception:
+			pass
+
 		# build current top->bottom order list from container
 		children_tb = list(self.rows_container.children)[::-1]
 		# find and remove the dragged row from order
@@ -238,8 +250,17 @@ class InputScreen(Screen):
 			self._drag_active = False
 			return
 
-		# bind window events for move/release
-		Window.bind(mouse_pos=self._on_window_mouse_move, on_touch_up=self._on_window_touch_up)
+		# bind polling and release handlers for move/release
+		self._drag_ev = Clock.schedule_interval(self._drag_poll, 0)
+		Window.bind(on_touch_up=self._on_window_touch_up)
+
+	def _drag_poll(self, dt):
+		# poll window mouse position and delegate to move handler
+		try:
+			pos = Window.mouse_pos
+			self._on_window_mouse_move(None, pos)
+		except Exception:
+			pass
 
 	def _render_rows_from_order(self):
 		"""Render rows_container children based on self._rows_order (top->bottom list)."""
@@ -299,8 +320,18 @@ class InputScreen(Screen):
 		if not getattr(self, '_drag_active', False):
 			return
 		# finalize drop: remove overlay row and insert into placeholder position
+		# stop polling and unbind release handler
 		try:
-			Window.unbind(mouse_pos=self._on_window_mouse_move, on_touch_up=self._on_window_touch_up)
+			if getattr(self, '_drag_ev', None) is not None:
+				try:
+					self._drag_ev.cancel()
+				except Exception:
+					pass
+				self._drag_ev = None
+		except Exception:
+			pass
+		try:
+			Window.unbind(on_touch_up=self._on_window_touch_up)
 		except Exception:
 			pass
 		try:
