@@ -119,29 +119,25 @@ class PokerScoreApp(App):
                         pass
                 except Exception:
                     pass
-                # switch on next frame to avoid focus/overlay reentrancy issues
+                # set current immediately so UI switches; run heavier init on next frame
                 try:
-                    def _do_change(dt):
+                    try:
+                        setattr(sm, 'current', name)
+                    except Exception:
+                        sm.current = name
+                except Exception:
+                    pass
+                try:
+                    def _do_init(dt):
                         try:
-                            setattr(sm, 'current', name)
-                        except Exception:
-                            try:
-                                sm.current = name
-                            except Exception:
-                                pass
-                        # after switching, ensure the target screen initializes
-                        try:
+                            # after switching, ensure the target screen initializes
                             if name == 'setup':
                                 scr = sm.get_screen('setup')
                                 if hasattr(scr, 'refresh_loaded'):
                                     try:
-                                        # schedule refresh on next frame so screen transition/layout finishes
-                                        Clock.schedule_once(lambda dt: scr.refresh_loaded(), 0)
+                                        scr.refresh_loaded()
                                     except Exception:
-                                        try:
-                                            scr.refresh_loaded()
-                                        except Exception:
-                                            pass
+                                        pass
                             elif name == 'input':
                                 scr = sm.get_screen('input')
                                 try:
@@ -200,12 +196,9 @@ class PokerScoreApp(App):
                                         pass
                         except Exception:
                             pass
-                    Clock.schedule_once(_do_change, 0)
+                    Clock.schedule_once(_do_init, 0)
                 except Exception:
-                    try:
-                        sm.current = name
-                    except Exception:
-                        pass
+                    pass
             except Exception:
                 pass
             try:
