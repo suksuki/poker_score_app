@@ -7,6 +7,71 @@ from kivy.metrics import dp, sp
 from kivy.graphics import Color, Rectangle, Line, Ellipse
 from kivy.clock import Clock
 from kivy.uix.textinput import TextInput
+import weakref
+import theme as _theme
+
+# registry of widgets that need theme-driven updates (weak refs to avoid leaks)
+_THEMED_WIDGETS = weakref.WeakSet()
+
+def _register_themable(obj):
+    try:
+        _THEMED_WIDGETS.add(obj)
+    except Exception:
+        pass
+
+def _apply_theme_to_registered():
+    """Update known widgets' colors when theme changes."""
+    try:
+        from kivy.uix.label import Label as _KLabel
+        from kivy.uix.textinput import TextInput as _KTI
+    except Exception:
+        _KLabel = None
+        _KTI = None
+    for w in list(_THEMED_WIDGETS):
+        try:
+            # update canvas color instructions if present
+            if hasattr(w, '_bg_color_instruction') and getattr(w, '_bg_color_instruction') is not None:
+                try:
+                    w._bg_color_instruction.rgba = _T('BTN_BG')
+                except Exception:
+                    pass
+            if hasattr(w, '_bg_color_instr') and getattr(w, '_bg_color_instr') is not None:
+                try:
+                    w._bg_color_instr.rgba = _T('BTN_BG')
+                except Exception:
+                    pass
+            if hasattr(w, '_mark_color_instruction') and getattr(w, '_mark_color_instruction') is not None:
+                try:
+                    w._mark_color_instruction.rgba = _T('TEXT_COLOR')
+                except Exception:
+                    pass
+            # Labels: update text color
+            try:
+                if _KLabel is not None and isinstance(w, _KLabel):
+                    w.color = _T('TEXT_COLOR')
+            except Exception:
+                pass
+            # TextInput: update background and foreground
+            try:
+                if _KTI is not None and isinstance(w, _KTI):
+                    try:
+                        w.background_color = _T('PANEL_BG')
+                    except Exception:
+                        pass
+                    try:
+                        w.foreground_color = _T('TEXT_COLOR')
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+# register our theme applier with theme module so it's called on apply_theme
+try:
+    _theme.register_theme_listener(_apply_theme_to_registered)
+except Exception:
+    pass
 
 import theme as _theme
 FONT_NAME = getattr(_theme, 'FONT_NAME', None)
@@ -44,6 +109,10 @@ def L(text="", **kw):
     kw.setdefault("valign", "middle")
     lbl = Label(text=text, **kw)
     lbl.bind(size=lambda inst, *_: setattr(inst, "text_size", (inst.width, inst.height)))
+    try:
+        _register_themable(lbl)
+    except Exception:
+        pass
     return lbl
 
 def H(text="", **kw):
@@ -55,6 +124,10 @@ def H(text="", **kw):
     kw.setdefault("valign", "middle")
     lbl = Label(text=text, **kw)
     lbl.bind(size=lambda inst, *_: setattr(inst, "text_size", (inst.width, inst.height)))
+    try:
+        _register_themable(lbl)
+    except Exception:
+        pass
     return lbl
 
 def TI(**kw):
@@ -71,6 +144,10 @@ def TI(**kw):
         ti.size_hint_y = None
         ti.height = dp(40)
         ti.padding = [dp(6), dp(8), dp(6), dp(8)]
+    except Exception:
+        pass
+    try:
+        _register_themable(ti)
     except Exception:
         pass
     return ti
@@ -102,6 +179,10 @@ def cell_bg(text, width, height, bg_color):
         pass
     lbl = L(text=text, size_hint=(1, 1))
     cont.add_widget(lbl)
+    try:
+        _register_themable(cont)
+    except Exception:
+        pass
     return cont
 
 def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
@@ -150,6 +231,10 @@ def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
         except Exception:
             pass
     cont.add_widget(content)
+    try:
+        _register_themable(cont)
+    except Exception:
+        pass
     return cont
 
 
@@ -176,6 +261,10 @@ def TrophyWidget(rank=None, size=36):
                     lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
                 except Exception:
                     pass
+                try:
+                    _register_themable(lbl)
+                except Exception:
+                    pass
                 return lbl
             elif rank == 'last':
                 lbl = Label(text=glyph, font_name=FA_FONT, font_size=font_size, size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
@@ -187,11 +276,19 @@ def TrophyWidget(rank=None, size=36):
                     lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
                 except Exception:
                     pass
+                try:
+                    _register_themable(lbl)
+                except Exception:
+                    pass
                 return lbl
             else:
                 lbl = Label(text='', size_hint=(None, 1), width=dp(size))
                 try:
                     lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                except Exception:
+                    pass
+                try:
+                    _register_themable(lbl)
                 except Exception:
                     pass
                 return lbl
@@ -205,6 +302,10 @@ def TrophyWidget(rank=None, size=36):
                 lbl = Label(text='', size_hint=(None, 1), width=dp(size))
             try:
                 lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+            except Exception:
+                pass
+            try:
+                _register_themable(lbl)
             except Exception:
                 pass
             return lbl
@@ -251,6 +352,10 @@ class IconButton(ButtonBehavior, Widget):
             self._bg_ellipse = None
             self._mark_graphics = []
         self.bind(pos=self._update_graphics, size=self._update_graphics)
+        try:
+            _register_themable(self)
+        except Exception:
+            pass
 
     def _update_graphics(self, *a):
         try:
@@ -332,6 +437,10 @@ class IconTextButton(ButtonBehavior, BoxLayout):
         except Exception:
             self._bg_color_instr = None
             self._bg_rect = None
+        try:
+            _register_themable(self)
+        except Exception:
+            pass
         if icon:
             def _map_icon(name: str):
                 if not name:
@@ -363,6 +472,10 @@ class IconTextButton(ButtonBehavior, BoxLayout):
                             icon_w.color = _T('TEXT_COLOR')
                         except Exception:
                             pass
+                        try:
+                            _register_themable(icon_w)
+                        except Exception:
+                            pass
             except Exception:
                 icon_w = None
             if icon_w is None:
@@ -387,6 +500,10 @@ class IconTextButton(ButtonBehavior, BoxLayout):
                 self._label.text_size = (self._label.width, self._label.height)
             except Exception:
                 pass
+        except Exception:
+            pass
+        try:
+            _register_themable(self._label)
         except Exception:
             pass
         self.add_widget(self._label)
@@ -474,6 +591,10 @@ class NameTouchable(Label):
         self._lp_ev = None
         self._touch = None
         self._long_pressed = False
+        try:
+            _register_themable(self)
+        except Exception:
+            pass
 
     def on_touch_down(self, touch):
         if not self.collide_point(*touch.pos):
