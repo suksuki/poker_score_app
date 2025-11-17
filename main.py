@@ -2,7 +2,7 @@ from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.screenmanager import ScreenManager, FadeTransition
 from kivy.core.window import Window
-from kivy.metrics import dp
+from kivy.metrics import dp, sp
 from kivy.uix.floatlayout import FloatLayout
 
 # Lightweight entry that restores theme/meta on startup and saves them on exit.
@@ -11,6 +11,7 @@ from storage import load_data, save_data
 from theme import apply_theme
 import theme as _theme
 from widgets import IconTextButton
+from kivy.clock import Clock
 
 
 class PokerScoreApp(App):
@@ -118,7 +119,94 @@ class PokerScoreApp(App):
                         pass
                 except Exception:
                     pass
-                sm.current = name
+                # switch on next frame to avoid focus/overlay reentrancy issues
+                try:
+                    def _do_change(dt):
+                        try:
+                            setattr(sm, 'current', name)
+                        except Exception:
+                            try:
+                                sm.current = name
+                            except Exception:
+                                pass
+                        # after switching, ensure the target screen initializes
+                        try:
+                            if name == 'setup':
+                                scr = sm.get_screen('setup')
+                                if hasattr(scr, 'refresh_loaded'):
+                                    try:
+                                        scr.refresh_loaded()
+                                    except Exception:
+                                        pass
+                            elif name == 'input':
+                                scr = sm.get_screen('input')
+                                try:
+                                    from kivy.app import App as _App
+                                    active = getattr(_App.get_running_app(), '_game_active', False)
+                                except Exception:
+                                    active = False
+                                if active:
+                                    if hasattr(scr, 'rows_container') and hasattr(scr, 'set_players'):
+                                        try:
+                                            # load players from storage only when game active
+                                            from storage import load_data
+                                            data = load_data() or {}
+                                            players = data.get('players') or []
+                                            scr.set_players(players)
+                                        except Exception:
+                                            pass
+                                else:
+                                    # ensure input screen is empty if game not started
+                                    try:
+                                        if hasattr(scr, 'set_players'):
+                                            scr.set_players([])
+                                    except Exception:
+                                        pass
+                                    # also remove any overlays or leftover widgets added to root
+                                    try:
+                                        root_ref = getattr(self, '_root', None)
+                                        content_ref = getattr(self, '_content', None)
+                                        if root_ref is not None and content_ref is not None:
+                                            for ch in list(root_ref.children):
+                                                if ch is not content_ref:
+                                                    try:
+                                                        root_ref.remove_widget(ch)
+                                                    except Exception:
+                                                        pass
+                                    except Exception:
+                                        pass
+                            elif name == 'score':
+                                scr = sm.get_screen('score')
+                                try:
+                                    from kivy.app import App as _App
+                                    active = getattr(_App.get_running_app(), '_game_active', False)
+                                except Exception:
+                                    active = False
+                                if active:
+                                    if hasattr(scr, 'rebuild_board'):
+                                        try:
+                                            scr.rebuild_board()
+                                        except Exception:
+                                            pass
+                                else:
+                                    # clear board when game not started
+                                    try:
+                                        scr.board_box.clear_widgets()
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                    Clock.schedule_once(_do_change, 0)
+                except Exception:
+                    try:
+                        sm.current = name
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                # debug: confirm current changed
+                print(f"[DEBUG] requested tab change to {name}, sm.current now={getattr(sm, 'current', None)}")
             except Exception:
                 pass
             for nm, b in tab_buttons.items():
@@ -126,11 +214,21 @@ class PokerScoreApp(App):
                     if nm == name:
                         try:
                             b._label.color = _theme.ACCENT
+                            try:
+                                b._label.text = f"[b]{b._raw_text}[/b]"
+                                b._label.font_size = sp(16)
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                     else:
                         try:
                             b._label.color = _theme.TEXT_COLOR
+                            try:
+                                b._label.text = b._raw_text
+                                b._label.font_size = _theme.SMALL_FONT
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                 except Exception:
@@ -156,7 +254,21 @@ class PokerScoreApp(App):
             cur = sm.current
             for nm, b in tab_buttons.items():
                 try:
-                    b._label.color = _theme.ACCENT if nm == cur else _theme.TEXT_COLOR
+                    # selected tab: larger bold label
+                    if nm == cur:
+                        try:
+                            b._label.color = _theme.ACCENT
+                            b._label.text = f"[b]{b._raw_text}[/b]"
+                            b._label.font_size = sp(16)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            b._label.color = _theme.TEXT_COLOR
+                            b._label.text = b._raw_text
+                            b._label.font_size = _theme.SMALL_FONT
+                        except Exception:
+                            pass
                 except Exception:
                     pass
         except Exception:
@@ -168,10 +280,23 @@ class PokerScoreApp(App):
                 try:
                     # update tab label colors according to current tab
                     for nm, b in tab_buttons.items():
-                        try:
-                            b._label.color = _theme.ACCENT if nm == sm.current else _theme.TEXT_COLOR
-                        except Exception:
-                            pass
+                            try:
+                                if nm == sm.current:
+                                    b._label.color = _theme.ACCENT
+                                    try:
+                                        b._label.text = f"[b]{b._raw_text}[/b]"
+                                        b._label.font_size = sp(16)
+                                    except Exception:
+                                        pass
+                                else:
+                                    b._label.color = _theme.TEXT_COLOR
+                                    try:
+                                        b._label.text = b._raw_text
+                                        b._label.font_size = _theme.SMALL_FONT
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
                 except Exception:
                     pass
                 try:
@@ -222,6 +347,12 @@ class PokerScoreApp(App):
         content.add_widget(footer)
         content.add_widget(sm)
         root.add_widget(content)
+        # keep references to main content and root for overlay cleanup
+        try:
+            self._root = root
+            self._content = content
+        except Exception:
+            pass
 
         # Create a global import/export bar at the bottom of the page container
         try:
