@@ -12,6 +12,7 @@ from theme import apply_theme
 import theme as _theme
 from widgets import IconTextButton
 from kivy.clock import Clock
+import time
 
 
 class PokerScoreApp(App):
@@ -127,14 +128,23 @@ class PokerScoreApp(App):
                         sm.current = name
                 except Exception:
                     pass
+                # detailed debug snapshot for reproducing navigation issues
+                try:
+                    root_ref = getattr(self, '_root', None)
+                    root_children = len(root_ref.children) if root_ref is not None else 'NA'
+                    print(f"[NAV-DBG] ts={time.time():.3f} requested={name} sm.current={getattr(sm,'current',None)} root_children={root_children}")
+                except Exception:
+                    pass
                 try:
                     def _do_init(dt):
                         try:
+                            print(f"[NAV-DBG] init-start ts={time.time():.3f} target={name} sm.current={getattr(sm,'current',None)}")
                             # after switching, ensure the target screen initializes
                             if name == 'setup':
                                 scr = sm.get_screen('setup')
                                 if hasattr(scr, 'refresh_loaded'):
                                     try:
+                                        print(f"[NAV-DBG] setup.scr.parent={getattr(scr,'parent',None)}")
                                         scr.refresh_loaded()
                                     except Exception:
                                         pass
@@ -194,6 +204,13 @@ class PokerScoreApp(App):
                                         scr.board_box.clear_widgets()
                                     except Exception:
                                         pass
+                        except Exception:
+                            pass
+                        try:
+                            # snapshot after attempted init
+                            root_ref2 = getattr(self, '_root', None)
+                            root_children2 = len(root_ref2.children) if root_ref2 is not None else 'NA'
+                            print(f"[NAV-DBG] init-end ts={time.time():.3f} target={name} sm.current={getattr(sm,'current',None)} root_children={root_children2}")
                         except Exception:
                             pass
                     Clock.schedule_once(_do_init, 0)
