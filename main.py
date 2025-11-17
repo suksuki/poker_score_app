@@ -122,6 +122,13 @@ class PokerScoreApp(App):
                     pass
                 # set current immediately so UI switches; run heavier init on next frame
                 try:
+                    # debounce fast repeated clicks (ignore if within 250ms)
+                    last = getattr(self, '_last_tab_press', 0)
+                    now = time.time()
+                    if now - last < 0.25:
+                        print(f"[NAV-DBG] tab press debounced: {name} (delta={now-last:.3f}s)")
+                        return
+                    self._last_tab_press = now
                     try:
                         setattr(sm, 'current', name)
                     except Exception:
@@ -144,8 +151,21 @@ class PokerScoreApp(App):
                                 scr = sm.get_screen('setup')
                                 if hasattr(scr, 'refresh_loaded'):
                                     try:
-                                        print(f"[NAV-DBG] setup.scr.parent={getattr(scr,'parent',None)}")
-                                        scr.refresh_loaded()
+                                        # if the screen isn't yet mounted to parent, retry a few times
+                                        def _attempt_refresh(attempts_left=6):
+                                            try:
+                                                parent_now = getattr(scr, 'parent', None)
+                                                print(f"[NAV-DBG] setup.attempt parent={parent_now} attempts_left={attempts_left}")
+                                                if parent_now is None and attempts_left > 0:
+                                                    Clock.schedule_once(lambda dt: _attempt_refresh(attempts_left-1), 0.06)
+                                                    return
+                                                try:
+                                                    scr.refresh_loaded()
+                                                except Exception:
+                                                    pass
+                                            except Exception:
+                                                pass
+                                        _attempt_refresh()
                                     except Exception:
                                         pass
                             elif name == 'input':
