@@ -135,9 +135,13 @@ class PokerScoreApp(App):
                                 scr = sm.get_screen('setup')
                                 if hasattr(scr, 'refresh_loaded'):
                                     try:
-                                        scr.refresh_loaded()
+                                        # schedule refresh on next frame so screen transition/layout finishes
+                                        Clock.schedule_once(lambda dt: scr.refresh_loaded(), 0)
                                     except Exception:
-                                        pass
+                                        try:
+                                            scr.refresh_loaded()
+                                        except Exception:
+                                            pass
                             elif name == 'input':
                                 scr = sm.get_screen('input')
                                 try:
