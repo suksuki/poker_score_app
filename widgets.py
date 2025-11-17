@@ -8,7 +8,11 @@ from kivy.graphics import Color, Rectangle, Line, Ellipse
 from kivy.clock import Clock
 from kivy.uix.textinput import TextInput
 
-from theme import FONT_NAME, FA_FONT, BTN_BG, TEXT_COLOR, PANEL_BG, ACCENT, CURRENT_THEME, SMALL_FONT, INPUT_FONT, BTN_HEIGHT, ROW_HEIGHT
+import theme as _theme
+FONT_NAME = getattr(_theme, 'FONT_NAME', None)
+FA_FONT = getattr(_theme, 'FA_FONT', None)
+def _T(name):
+    return getattr(_theme, name)
 
 def style_card(widget, *a, **kw):
     return widget
@@ -17,13 +21,13 @@ def style_button(btn: Button, *a, **kw):
     try:
         btn.background_normal = ''
         btn.background_down = ''
-        btn.background_color = BTN_BG
+        btn.background_color = _T('BTN_BG')
     except Exception:
         pass
     try:
-        btn.color = TEXT_COLOR
+        btn.color = _T('TEXT_COLOR')
     except Exception:
-        btn.color = (1, 1, 1, 1) if CURRENT_THEME == 'dark' else TEXT_COLOR
+        btn.color = (1, 1, 1, 1) if _T('CURRENT_THEME') == 'dark' else _T('TEXT_COLOR')
     try:
         btn.padding = (dp(8), dp(6))
         btn.font_size = sp(13)
@@ -34,8 +38,8 @@ def style_button(btn: Button, *a, **kw):
 def L(text="", **kw):
     if FONT_NAME:
         kw.setdefault("font_name", FONT_NAME)
-    kw.setdefault("font_size", SMALL_FONT)
-    kw.setdefault("color", TEXT_COLOR)
+    kw.setdefault("font_size", _T('SMALL_FONT'))
+    kw.setdefault("color", _T('TEXT_COLOR'))
     kw.setdefault("halign", "center")
     kw.setdefault("valign", "middle")
     lbl = Label(text=text, **kw)
@@ -46,7 +50,7 @@ def H(text="", **kw):
     if FONT_NAME:
         kw.setdefault("font_name", FONT_NAME)
     kw.setdefault("font_size", sp(16))
-    kw.setdefault("color", TEXT_COLOR)
+    kw.setdefault("color", _T('TEXT_COLOR'))
     kw.setdefault("halign", "center")
     kw.setdefault("valign", "middle")
     lbl = Label(text=text, **kw)
@@ -56,12 +60,12 @@ def H(text="", **kw):
 def TI(**kw):
     if FONT_NAME:
         kw.setdefault("font_name", FONT_NAME)
-    kw.setdefault("font_size", INPUT_FONT)
+    kw.setdefault("font_size", _T('INPUT_FONT'))
     kw.setdefault("multiline", False)
     kw.setdefault("background_normal", "")
     kw.setdefault("background_active", "")
-    kw.setdefault("background_color", PANEL_BG)
-    kw.setdefault("foreground_color", TEXT_COLOR)
+    kw.setdefault("background_color", _T('PANEL_BG'))
+    kw.setdefault("foreground_color", _T('TEXT_COLOR'))
     ti = TextInput(**kw)
     try:
         ti.size_hint_y = None
@@ -158,19 +162,62 @@ def TrophyWidget(rank=None, size=36):
         font_size = sp(14)
     except Exception:
         font_size = 14
-    if rank == 1:
-        return L(text='🏆', font_size=font_size, color=(1.0, 0.84, 0.0, 1), size_hint_x=None, width=dp(size))
-    elif rank == 'last':
-        return L(text='🏆', font_size=font_size, color=(0.6, 0.6, 0.63, 1), size_hint_x=None, width=dp(size))
-    else:
-        return L(text='', size_hint_x=None, width=dp(size))
+    # Prefer FontAwesome glyph when available (matches score page), fall back to emoji
+    try:
+        if FA_FONT:
+            glyph = '\uf091'
+            if rank == 1:
+                lbl = Label(text=glyph, font_name=FA_FONT, font_size=font_size, size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
+                try:
+                    lbl.color = (1.0, 0.84, 0.0, 1)
+                except Exception:
+                    pass
+                try:
+                    lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                except Exception:
+                    pass
+                return lbl
+            elif rank == 'last':
+                lbl = Label(text=glyph, font_name=FA_FONT, font_size=font_size, size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
+                try:
+                    lbl.color = (0.6, 0.6, 0.63, 1)
+                except Exception:
+                    pass
+                try:
+                    lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                except Exception:
+                    pass
+                return lbl
+            else:
+                lbl = Label(text='', size_hint=(None, 1), width=dp(size))
+                try:
+                    lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                except Exception:
+                    pass
+                return lbl
+        else:
+            # No FontAwesome available; use emoji which may rely on system fallback fonts
+            if rank == 1:
+                lbl = Label(text='🏆', font_size=font_size, color=(1.0, 0.84, 0.0, 1), size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
+            elif rank == 'last':
+                lbl = Label(text='🏆', font_size=font_size, color=(0.6, 0.6, 0.63, 1), size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
+            else:
+                lbl = Label(text='', size_hint=(None, 1), width=dp(size))
+            try:
+                lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+            except Exception:
+                pass
+            return lbl
+    except Exception:
+        # ultimate fallback: plain empty L()
+        return L(text='' if rank is None else '🏆' if rank == 1 else '🏆', size_hint_x=None, width=dp(size))
 
 def BTN(text, **kw):
     kw.setdefault("size_hint_y", None)
-    kw.setdefault("height", BTN_HEIGHT)
+    kw.setdefault("height", _T('BTN_HEIGHT'))
     if FONT_NAME:
         kw.setdefault("font_name", FONT_NAME)
-        kw.setdefault("font_size", SMALL_FONT)
+        kw.setdefault("font_size", _T('SMALL_FONT'))
     btn = Button(text=text, **kw)
     style_button(btn)
     return btn
@@ -192,10 +239,10 @@ class IconButton(ButtonBehavior, Widget):
         self._mark_color_instruction = None
         try:
             with self.canvas.before:
-                self._bg_color_instruction = Color(*BTN_BG)
+                self._bg_color_instruction = Color(*_T('BTN_BG'))
                 self._bg_ellipse = Ellipse(pos=self.pos, size=self.size)
             with self.canvas:
-                self._mark_color_instruction = Color(*TEXT_COLOR)
+                self._mark_color_instruction = Color(*_T('TEXT_COLOR'))
                 lw = dp(2.5)
                 for _ in range(3):
                     self._mark_graphics.append(Line(points=[], width=lw))
@@ -259,7 +306,7 @@ class IconButton(ButtonBehavior, Widget):
     def on_press(self):
         try:
             if self._bg_color_instruction is not None:
-                r,g,b,a = BTN_BG
+                r,g,b,a = _T('BTN_BG')
                 self._bg_color_instruction.rgba = (r,g,b,max(0.06, a * 1.8))
         except Exception:
             pass
@@ -267,19 +314,19 @@ class IconButton(ButtonBehavior, Widget):
     def on_release(self):
         try:
             if self._bg_color_instruction is not None:
-                self._bg_color_instruction.rgba = BTN_BG
+                self._bg_color_instruction.rgba = _T('BTN_BG')
         except Exception:
             pass
 
 class IconTextButton(ButtonBehavior, BoxLayout):
     def __init__(self, text: str = '', icon: str = None, **kwargs):
-        h = kwargs.pop('height', BTN_HEIGHT)
+        h = kwargs.pop('height', _T('BTN_HEIGHT'))
         size_hint_y = kwargs.pop('size_hint_y', None)
         super().__init__(orientation='horizontal', spacing=dp(8), padding=(dp(8), dp(6)), **kwargs)
         self._raw_text = text or ''
         try:
             with self.canvas.before:
-                self._bg_color_instr = Color(*BTN_BG)
+                self._bg_color_instr = Color(*_T('BTN_BG'))
                 self._bg_rect = Rectangle(pos=self.pos, size=self.size)
             self.bind(pos=lambda inst, *_: setattr(self._bg_rect, 'pos', inst.pos), size=lambda inst, *_: setattr(self._bg_rect, 'size', inst.size))
         except Exception:
@@ -290,7 +337,7 @@ class IconTextButton(ButtonBehavior, BoxLayout):
                 if not name:
                     return None
                 n = name.lower().replace('_','-')
-                mapping = {'content-save':'save','file-download':'save','file-upload':'import','import':'import','plus':'plus','close':'x','delete':'trash','trash':'trash','check':'check','play':'play'}
+                mapping = {'content-save':'save','file-download':'save','file-upload':'import','import':'import','plus':'plus','close':'x','delete':'trash','trash':'trash','check':'check','play':'play','wrench':'wrench','cog':'wrench'}
                 if n in mapping:
                     return mapping[n]
                 if 'save' in n or 'download' in n or 'file' in n:
@@ -308,12 +355,12 @@ class IconTextButton(ButtonBehavior, BoxLayout):
             icon_w = None
             try:
                 if FA_FONT and mapped:
-                    glyph_map = {'save':'\uf0c7','import':'\uf093','export':'\uf093','plus':'\uf067','minus':'\uf068','trash':'\uf1f8','x':'\uf00d','check':'\uf00c','play':'\uf04b'}
+                    glyph_map = {'save':'\uf0c7','import':'\uf093','export':'\uf093','plus':'\uf067','minus':'\uf068','trash':'\uf1f8','x':'\uf00d','check':'\uf00c','play':'\uf04b','wrench':'\uf0ad'}
                     glyph = glyph_map.get(mapped)
                     if glyph:
                         icon_w = Label(text=glyph, font_name=FA_FONT, font_size=sp(16), size_hint=(None,None), size=(dp(28), dp(28)))
                         try:
-                            icon_w.color = TEXT_COLOR
+                            icon_w.color = _T('TEXT_COLOR')
                         except Exception:
                             pass
             except Exception:
@@ -333,8 +380,8 @@ class IconTextButton(ButtonBehavior, BoxLayout):
         try:
             if FONT_NAME:
                 self._label.font_name = FONT_NAME
-            self._label.font_size = SMALL_FONT
-            self._label.color = TEXT_COLOR
+            self._label.font_size = _T('SMALL_FONT')
+            self._label.color = _T('TEXT_COLOR')
             self._label.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
             try:
                 self._label.text_size = (self._label.width, self._label.height)
@@ -366,9 +413,9 @@ class IconTextButton(ButtonBehavior, BoxLayout):
     def restyle(self):
         try:
             if getattr(self, 'disabled', False):
-                lbl_color = (1,1,1,0.8) if CURRENT_THEME == 'dark' else (0.45,0.45,0.45,1)
+                lbl_color = (1,1,1,0.8) if _T('CURRENT_THEME') == 'dark' else (0.45,0.45,0.45,1)
             else:
-                lbl_color = (1,1,1,1) if CURRENT_THEME == 'dark' else TEXT_COLOR
+                lbl_color = (1,1,1,1) if _T('CURRENT_THEME') == 'dark' else _T('TEXT_COLOR')
             try:
                 self._label.color = lbl_color
             except Exception:
@@ -392,13 +439,13 @@ class IconTextButton(ButtonBehavior, BoxLayout):
                 pass
             if getattr(self, '_bg_color_instr', None) is not None:
                 try:
-                    self._bg_color_instr.rgba = BTN_BG
+                    self._bg_color_instr.rgba = _T('BTN_BG')
                 except Exception:
                     pass
             for ch in getattr(self, 'children', []):
                 if hasattr(ch, '_mark_color_instruction') and ch._mark_color_instruction is not None:
                     try:
-                        ch._mark_color_instruction.rgba = ACCENT if CURRENT_THEME == 'dark' else TEXT_COLOR
+                        ch._mark_color_instruction.rgba = _T('ACCENT') if _T('CURRENT_THEME') == 'dark' else _T('TEXT_COLOR')
                     except Exception:
                         pass
         except Exception:
@@ -417,8 +464,8 @@ class NameTouchable(Label):
                 kw.setdefault('font_name', FONT_NAME)
         except Exception:
             pass
-        kw.setdefault('font_size', SMALL_FONT)
-        kw.setdefault('color', TEXT_COLOR)
+        kw.setdefault('font_size', _T('SMALL_FONT'))
+        kw.setdefault('color', _T('TEXT_COLOR'))
         kw.setdefault('halign', 'left')
         kw.setdefault('valign', 'middle')
         super().__init__(**kw)

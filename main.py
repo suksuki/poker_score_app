@@ -8,7 +8,8 @@ from kivy.uix.floatlayout import FloatLayout
 # Lightweight entry that restores theme/meta on startup and saves them on exit.
 from screens import SetupScreen, InputScreen, ScoreScreen, StatisticsScreen
 from storage import load_data, save_data
-from theme import apply_theme, CURRENT_THEME, ACCENT, TEXT_COLOR
+from theme import apply_theme
+import theme as _theme
 from widgets import IconTextButton
 
 
@@ -44,6 +45,12 @@ class PokerScoreApp(App):
         except Exception:
             pass
 
+        # Always start at the Setup screen on application launch per user request
+        try:
+            sm.current = 'setup'
+        except Exception:
+            pass
+
         # Give screens a chance to initialize from loaded data
         try:
             scr = sm.get_screen('setup')
@@ -64,13 +71,7 @@ class PokerScoreApp(App):
         except Exception:
             pass
 
-        # restore last tab if present
-        last_tab = meta.get('last_tab') if isinstance(meta, dict) else None
-        try:
-            if last_tab and last_tab in ('setup', 'input', 'score', 'statistics'):
-                sm.current = last_tab
-        except Exception:
-            pass
+        # Note: do not restore last tab; app should always start at Setup
 
         # Build a root FloatLayout so we can place an overlay above the main content
         # The visible app content (ScreenManager + tab bar) is inside a vertical BoxLayout
@@ -88,6 +89,35 @@ class PokerScoreApp(App):
 
         def _on_tab_press(name, btn):
             try:
+                # clear focus from any TextInput to avoid focus/keyboard blocking navigation
+                try:
+                    from kivy.uix.textinput import TextInput
+                    def _clear_focus(w):
+                        try:
+                            if isinstance(w, TextInput):
+                                w.focus = False
+                        except Exception:
+                            pass
+                        try:
+                            for c in getattr(w, 'children', []):
+                                _clear_focus(c)
+                        except Exception:
+                            pass
+                    try:
+                        _clear_focus(App.get_running_app().root)
+                    except Exception:
+                        pass
+                    try:
+                        from kivy.core.window import Window
+                        if hasattr(Window, 'release_all_keyboards'):
+                            try:
+                                Window.release_all_keyboards()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
                 sm.current = name
             except Exception:
                 pass
@@ -95,12 +125,12 @@ class PokerScoreApp(App):
                 try:
                     if nm == name:
                         try:
-                            b._label.color = ACCENT
+                            b._label.color = _theme.ACCENT
                         except Exception:
                             pass
                     else:
                         try:
-                            b._label.color = TEXT_COLOR
+                            b._label.color = _theme.TEXT_COLOR
                         except Exception:
                             pass
                 except Exception:
@@ -110,7 +140,12 @@ class PokerScoreApp(App):
             try:
                 btn = IconTextButton(text=label)
                 btn.size_hint_x = 1
+                # bind both press and release to improve responsiveness across platforms
                 btn.bind(on_press=lambda inst, n=name: _on_tab_press(n, inst))
+                try:
+                    btn.bind(on_release=lambda inst, n=name: _on_tab_press(n, inst))
+                except Exception:
+                    pass
                 footer.add_widget(btn)
                 tab_buttons[name] = btn
             except Exception:
@@ -121,9 +156,65 @@ class PokerScoreApp(App):
             cur = sm.current
             for nm, b in tab_buttons.items():
                 try:
-                    b._label.color = ACCENT if nm == cur else TEXT_COLOR
+                    b._label.color = _theme.ACCENT if nm == cur else _theme.TEXT_COLOR
                 except Exception:
                     pass
+        except Exception:
+            pass
+
+        # register a theme-change listener to refresh dynamic visuals when theme changes
+        try:
+            def _on_theme_change():
+                try:
+                    # update tab label colors according to current tab
+                    for nm, b in tab_buttons.items():
+                        try:
+                            b._label.color = _theme.ACCENT if nm == sm.current else _theme.TEXT_COLOR
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    # update global ops buttons colors if present
+                    go = getattr(self, '_global_ops', None)
+                    if go is not None:
+                        for ch in go.children:
+                            try:
+                                if hasattr(ch, '_label'):
+                                    ch._label.color = _theme.TEXT_COLOR
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                try:
+                    # refresh score board (rebuild uses theme constants)
+                    scr_score = sm.get_screen('score')
+                    if hasattr(scr_score, 'rebuild_board'):
+                        scr_score.rebuild_board()
+                except Exception:
+                    pass
+                try:
+                    # let setup screen refresh any loaded UI
+                    scr_setup = sm.get_screen('setup')
+                    if hasattr(scr_setup, 'refresh_loaded'):
+                        scr_setup.refresh_loaded()
+                except Exception:
+                    pass
+                try:
+                    # re-render input rows so ranks/trophy colors update
+                    scr_input = sm.get_screen('input')
+                    if hasattr(scr_input, 'rows_container') and hasattr(scr_input, '_render_rows_from_order'):
+                        children_tb = list(scr_input.rows_container.children)[::-1]
+                        scr_input._render_rows_from_order(children_tb)
+                except Exception:
+                    pass
+
+            try:
+                _theme.register_theme_listener(_on_theme_change)
+                # call once to ensure initial application
+                _on_theme_change()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -139,10 +230,18 @@ class PokerScoreApp(App):
             exp_btn = IconTextButton(text='导出 JSON', icon='file-download')
             try:
                 imp_btn.bind(on_press=lambda *_: sm.get_screen('input').import_json_dialog())
+                try:
+                    imp_btn.bind(on_release=lambda *_: sm.get_screen('input').import_json_dialog())
+                except Exception:
+                    pass
             except Exception:
                 pass
             try:
                 exp_btn.bind(on_press=lambda *_: sm.get_screen('input').export_json_dialog())
+                try:
+                    exp_btn.bind(on_release=lambda *_: sm.get_screen('input').export_json_dialog())
+                except Exception:
+                    pass
             except Exception:
                 pass
             try:
@@ -200,7 +299,7 @@ class PokerScoreApp(App):
         except Exception:
             pass
         try:
-            meta['theme'] = CURRENT_THEME
+            meta['theme'] = getattr(_theme, 'CURRENT_THEME', None)
         except Exception:
             pass
         try:

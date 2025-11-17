@@ -66,6 +66,15 @@ def apply_theme(name: str):
         Window.clearcolor = COLOR_BG
     except Exception:
         pass
+    # notify any registered listeners so UI can refresh dynamic graphics
+    try:
+        for cb in _THEME_LISTENERS:
+            try:
+                cb()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 # 立即应用
 apply_theme(CURRENT_THEME)
@@ -96,5 +105,22 @@ for _fp in _fa_candidates:
                 break
             except Exception:
                 FA_FONT = None
+    except Exception:
+        pass
+
+# simple listener registry so other modules can refresh visuals when theme changes
+_THEME_LISTENERS = []
+
+def register_theme_listener(cb):
+    try:
+        if cb not in _THEME_LISTENERS:
+            _THEME_LISTENERS.append(cb)
+    except Exception:
+        pass
+
+def unregister_theme_listener(cb):
+    try:
+        if cb in _THEME_LISTENERS:
+            _THEME_LISTENERS.remove(cb)
     except Exception:
         pass
