@@ -92,8 +92,15 @@ class PokerScoreApp(App):
 
         def _on_tab_press(name, btn):
             try:
-                # Lightweight stdout trace to help diagnose whether tab press callback is invoked.
-                # ephemeral diagnostic removed
+                # debounce fast repeated clicks to the SAME tab (ignore if same tab within 250ms)
+                last = getattr(self, '_last_tab_press', 0)
+                last_name = getattr(self, '_last_tab_name', None)
+                now = time.time()
+                if now - last < 0.25 and name == last_name:
+                    return
+                self._last_tab_press = now
+                self._last_tab_name = name
+
                 # clear focus from any TextInput to avoid focus/keyboard blocking navigation
                 try:
                     from kivy.uix.textinput import TextInput
@@ -123,276 +130,205 @@ class PokerScoreApp(App):
                         pass
                 except Exception:
                     pass
-                # set current immediately so UI switches; run heavier init on next frame
+
+                # remove any overlays or stray widgets above main content that may block touches
                 try:
-                    # debounce fast repeated clicks to the SAME tab (ignore if same tab within 250ms)
-                    last = getattr(self, '_last_tab_press', 0)
-                    last_name = getattr(self, '_last_tab_name', None)
-                    now = time.time()
-                    if now - last < 0.25 and name == last_name:
-                        pass
-                        return
-                    self._last_tab_press = now
-                    self._last_tab_name = name
-                    try:
-                        # remove any overlays or stray widgets above main content that may block touches
-                        try:
-                            def _on_tab_press(name, btn):
+                    root_ref = getattr(self, '_root', None)
+                    content_ref = getattr(self, '_content', None)
+                    if root_ref is not None and content_ref is not None:
+                        overlay_layer = getattr(self, '_overlay_layer', None)
+                        for ch in list(root_ref.children):
+                            if ch is content_ref:
+                                continue
+                            try:
+                                # if this is the overlay_layer, clear its children instead of removing the layer
+                                if overlay_layer is not None and ch is overlay_layer:
+                                    try:
+                                        self.clear_overlays()
+                                    except Exception:
+                                        pass
+                                    continue
                                 try:
-                                    # debounce fast repeated clicks to the SAME tab (ignore if same tab within 250ms)
-                                    last = getattr(self, '_last_tab_press', 0)
-                                    last_name = getattr(self, '_last_tab_name', None)
-                                    now = time.time()
-                                    if now - last < 0.25 and name == last_name:
-                                        return
-                                    self._last_tab_press = now
-                                    self._last_tab_name = name
-
-                                    # clear focus from any TextInput to avoid focus/keyboard blocking navigation
-                                    try:
-                                        from kivy.uix.textinput import TextInput
-                                        def _clear_focus(w):
-                                            try:
-                                                if isinstance(w, TextInput):
-                                                    w.focus = False
-                                            except Exception:
-                                                pass
-                                            try:
-                                                for c in getattr(w, 'children', []):
-                                                    _clear_focus(c)
-                                            except Exception:
-                                                pass
-                                        try:
-                                            _clear_focus(App.get_running_app().root)
-                                        except Exception:
-                                            pass
-                                        try:
-                                            from kivy.core.window import Window
-                                            if hasattr(Window, 'release_all_keyboards'):
-                                                try:
-                                                    Window.release_all_keyboards()
-                                                except Exception:
-                                                    pass
-                                        except Exception:
-                                            pass
-                                    except Exception:
-                                        pass
-
-                                    # remove any overlays or stray widgets above main content that may block touches
-                                    try:
-                                        root_ref = getattr(self, '_root', None)
-                                        content_ref = getattr(self, '_content', None)
-                                        if root_ref is not None and content_ref is not None:
-                                            overlay_layer = getattr(self, '_overlay_layer', None)
-                                            for ch in list(root_ref.children):
-                                                if ch is content_ref:
-                                                    continue
-                                                try:
-                                                    # if this is the overlay_layer, clear its children instead of removing the layer
-                                                    if overlay_layer is not None and ch is overlay_layer:
-                                                        try:
-                                                            self.clear_overlays()
-                                                        except Exception:
-                                                            pass
-                                                        continue
-                                                    try:
-                                                        root_ref.remove_widget(ch)
-                                                    except Exception:
-                                                        pass
-                                                except Exception:
-                                                    pass
-                                    except Exception:
-                                        pass
-
-                                    # switch screen immediately; run heavier init on next frame
-                                    try:
-                                        sm.current = name
-                                    except Exception:
-                                        try:
-                                            setattr(sm, 'current', name)
-                                        except Exception:
-                                            pass
-
-                                    def _do_init(dt):
-                                        try:
-                                            # after switching, ensure the target screen initializes
-                                            if name == 'setup':
-                                                scr = sm.get_screen('setup')
-                                                if hasattr(scr, 'refresh_loaded'):
-                                                    try:
-                                                        # if the screen isn't yet mounted to parent, retry a few times
-                                                        def _attempt_refresh(attempts_left=6):
-                                                            try:
-                                                                parent_now = getattr(scr, 'parent', None)
-                                                                if parent_now is None and attempts_left > 0:
-                                                                    Clock.schedule_once(lambda dt: _attempt_refresh(attempts_left-1), 0.06)
-                                                                    return
-                                                                try:
-                                                                    scr.refresh_loaded()
-                                                                except Exception:
-                                                                    pass
-                                                            except Exception:
-                                                                pass
-                                                        _attempt_refresh()
-                                                    except Exception:
-                                                        pass
-                                            elif name == 'input':
-                                                scr = sm.get_screen('input')
-                                                try:
-                                                    from kivy.app import App as _App
-                                                    active = getattr(_App.get_running_app(), '_game_active', False)
-                                                except Exception:
-                                                    active = False
-                                                if active:
-                                                    if hasattr(scr, 'rows_container') and hasattr(scr, 'set_players'):
-                                                        try:
-                                                            from storage import load_data
-                                                            data = load_data() or {}
-                                                            players = data.get('players') or []
-                                                            scr.set_players(players)
-                                                        except Exception:
-                                                            pass
-                                                else:
-                                                    try:
-                                                        if hasattr(scr, 'set_players'):
-                                                            scr.set_players([])
-                                                    except Exception:
-                                                        pass
-                                                    try:
-                                                        root_ref = getattr(self, '_root', None)
-                                                        content_ref = getattr(self, '_content', None)
-                                                        if root_ref is not None and content_ref is not None:
-                                                            overlay_layer = getattr(self, '_overlay_layer', None)
-                                                            for ch in list(root_ref.children):
-                                                                if ch is content_ref:
-                                                                    continue
-                                                                try:
-                                                                    if overlay_layer is not None and ch is overlay_layer:
-                                                                        try:
-                                                                            self.clear_overlays()
-                                                                        except Exception:
-                                                                            pass
-                                                                        continue
-                                                                    try:
-                                                                        root_ref.remove_widget(ch)
-                                                                    except Exception:
-                                                                        pass
-                                                                except Exception:
-                                                                    pass
-                                                    except Exception:
-                                                        pass
-                                            elif name == 'score':
-                                                scr = sm.get_screen('score')
-                                                try:
-                                                    from kivy.app import App as _App
-                                                    active = getattr(_App.get_running_app(), '_game_active', False)
-                                                except Exception:
-                                                    active = False
-                                                if active:
-                                                    if hasattr(scr, 'rebuild_board'):
-                                                        try:
-                                                            scr.rebuild_board()
-                                                        except Exception:
-                                                            pass
-                                                else:
-                                                    try:
-                                                        scr.board_box.clear_widgets()
-                                                    except Exception:
-                                                        pass
-                                        except Exception:
-                                            pass
-
-                                    Clock.schedule_once(_do_init, 0)
+                                    root_ref.remove_widget(ch)
                                 except Exception:
                                     pass
-
-                                for nm, b in tab_buttons.items():
-                                    try:
-                                        if nm == name:
-                                            try:
-                                                b._label.color = _theme.ACCENT
-                                                try:
-                                                    b._label.text = f"[b]{b._raw_text}[/b]"
-                                                    b._label.font_size = sp(16)
-                                                except Exception:
-                                                    pass
-                                            except Exception:
-                                                pass
-                                        else:
-                                            try:
-                                                b._label.color = _theme.TEXT_COLOR
-                                                try:
-                                                    b._label.text = b._raw_text
-                                                    b._label.font_size = _theme.SMALL_FONT
-                                                except Exception:
-                                                    pass
-                                            except Exception:
-                                                pass
-                                    except Exception:
-                                        pass
-                try:
-                    # update tab label colors according to current tab
-                    for nm, b in tab_buttons.items():
-                            try:
-                                if nm == sm.current:
-                                    b._label.color = _theme.ACCENT
-                                    try:
-                                        b._label.text = f"[b]{b._raw_text}[/b]"
-                                        b._label.font_size = sp(16)
-                                    except Exception:
-                                        pass
-                                else:
-                                    b._label.color = _theme.TEXT_COLOR
-                                    try:
-                                        b._label.text = b._raw_text
-                                        b._label.font_size = _theme.SMALL_FONT
-                                    except Exception:
-                                        pass
                             except Exception:
                                 pass
                 except Exception:
                     pass
-                try:
-                    # update global ops buttons colors if present
-                    go = getattr(self, '_global_ops', None)
-                    if go is not None:
-                        for ch in go.children:
-                            try:
-                                if hasattr(ch, '_label'):
-                                    ch._label.color = _theme.TEXT_COLOR
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-                try:
-                    # refresh score board (rebuild uses theme constants)
-                    scr_score = sm.get_screen('score')
-                    if hasattr(scr_score, 'rebuild_board'):
-                        scr_score.rebuild_board()
-                except Exception:
-                    pass
-                try:
-                    # let setup screen refresh any loaded UI
-                    scr_setup = sm.get_screen('setup')
-                    if hasattr(scr_setup, 'refresh_loaded'):
-                        scr_setup.refresh_loaded()
-                except Exception:
-                    pass
-                try:
-                    # re-render input rows so ranks/trophy colors update
-                    scr_input = sm.get_screen('input')
-                    if hasattr(scr_input, 'rows_container') and hasattr(scr_input, '_render_rows_from_order'):
-                        children_tb = list(scr_input.rows_container.children)[::-1]
-                        scr_input._render_rows_from_order(children_tb)
-                except Exception:
-                    pass
 
-            try:
-                _theme.register_theme_listener(_on_theme_change)
-                # call once to ensure initial application
-                _on_theme_change()
+                # switch screen immediately; run heavier init on next frame
+                try:
+                    sm.current = name
+                except Exception:
+                    try:
+                        setattr(sm, 'current', name)
+                    except Exception:
+                        pass
+
+                def _do_init(dt):
+                    try:
+                        # after switching, ensure the target screen initializes
+                        if name == 'setup':
+                            scr = sm.get_screen('setup')
+                            if hasattr(scr, 'refresh_loaded'):
+                                try:
+                                    # if the screen isn't yet mounted to parent, retry a few times
+                                    def _attempt_refresh(attempts_left=6):
+                                        try:
+                                            parent_now = getattr(scr, 'parent', None)
+                                            if parent_now is None and attempts_left > 0:
+                                                Clock.schedule_once(lambda dt: _attempt_refresh(attempts_left-1), 0.06)
+                                                return
+                                            try:
+                                                scr.refresh_loaded()
+                                            except Exception:
+                                                pass
+                                        except Exception:
+                                            pass
+                                    _attempt_refresh()
+                                except Exception:
+                                    pass
+                        elif name == 'input':
+                            scr = sm.get_screen('input')
+                            try:
+                                from kivy.app import App as _App
+                                active = getattr(_App.get_running_app(), '_game_active', False)
+                            except Exception:
+                                active = False
+                            if active:
+                                if hasattr(scr, 'rows_container') and hasattr(scr, 'set_players'):
+                                    try:
+                                        from storage import load_data
+                                        data = load_data() or {}
+                                        players = data.get('players') or []
+                                        scr.set_players(players)
+                                    except Exception:
+                                        pass
+                            else:
+                                try:
+                                    if hasattr(scr, 'set_players'):
+                                        scr.set_players([])
+                                except Exception:
+                                    pass
+                                try:
+                                    root_ref = getattr(self, '_root', None)
+                                    content_ref = getattr(self, '_content', None)
+                                    if root_ref is not None and content_ref is not None:
+                                        overlay_layer = getattr(self, '_overlay_layer', None)
+                                        for ch in list(root_ref.children):
+                                            if ch is content_ref:
+                                                continue
+                                            try:
+                                                if overlay_layer is not None and ch is overlay_layer:
+                                                    try:
+                                                        self.clear_overlays()
+                                                    except Exception:
+                                                        pass
+                                                    continue
+                                                try:
+                                                    root_ref.remove_widget(ch)
+                                                except Exception:
+                                                    pass
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    pass
+                        elif name == 'score':
+                            scr = sm.get_screen('score')
+                            try:
+                                from kivy.app import App as _App
+                                active = getattr(_App.get_running_app(), '_game_active', False)
+                            except Exception:
+                                active = False
+                            if active:
+                                if hasattr(scr, 'rebuild_board'):
+                                    try:
+                                        scr.rebuild_board()
+                                    except Exception:
+                                        pass
+                            else:
+                                try:
+                                    scr.board_box.clear_widgets()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                Clock.schedule_once(_do_init, 0)
             except Exception:
                 pass
+
+        def _on_theme_change():
+            try:
+                # update tab label colors according to current tab
+                for nm, b in tab_buttons.items():
+                    try:
+                        if nm == sm.current:
+                            b._label.color = _theme.ACCENT
+                            try:
+                                b._label.text = f"[b]{b._raw_text}[/b]"
+                                b._label.font_size = sp(16)
+                            except Exception:
+                                pass
+                        else:
+                            b._label.color = _theme.TEXT_COLOR
+                            try:
+                                b._label.text = b._raw_text
+                                b._label.font_size = _theme.SMALL_FONT
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                # update global ops buttons colors if present
+                go = getattr(self, '_global_ops', None)
+                if go is not None:
+                    for ch in go.children:
+                        try:
+                            if hasattr(ch, '_label'):
+                                ch._label.color = _theme.TEXT_COLOR
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            try:
+                # refresh score board (rebuild uses theme constants)
+                scr_score = sm.get_screen('score')
+                if hasattr(scr_score, 'rebuild_board'):
+                    scr_score.rebuild_board()
+            except Exception:
+                pass
+            try:
+                # let setup screen refresh any loaded UI
+                scr_setup = sm.get_screen('setup')
+                if hasattr(scr_setup, 'refresh_loaded'):
+                    scr_setup.refresh_loaded()
+            except Exception:
+                pass
+            try:
+                # re-render input rows so ranks/trophy colors update
+                scr_input = sm.get_screen('input')
+                if hasattr(scr_input, 'rows_container') and hasattr(scr_input, '_render_rows_from_order'):
+                    children_tb = list(scr_input.rows_container.children)[::-1]
+                    scr_input._render_rows_from_order(children_tb)
+            except Exception:
+                pass
+
+        # Create tab buttons and bind handlers
+        for tab_name, tab_label in tabs:
+            btn = IconTextButton(text=tab_label, icon='')
+            btn._raw_text = tab_label
+            btn.bind(on_press=lambda inst, n=tab_name: _on_tab_press(n, inst))
+            footer.add_widget(btn)
+            tab_buttons[tab_name] = btn
+
+        try:
+            _theme.register_theme_listener(_on_theme_change)
+            # call once to ensure initial application
+            _on_theme_change()
         except Exception:
             pass
 
@@ -413,8 +349,6 @@ class PokerScoreApp(App):
             if not hasattr(self, '_overlay_queue'):
                 self._overlay_queue = []
                 self._queued_overlays = {}
-        except Exception:
-            pass
         except Exception:
             pass
         # keep references to main content and root for overlay cleanup
