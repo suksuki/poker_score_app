@@ -544,6 +544,17 @@ class PokerScoreApp(App):
                 self._overlays = {}
             except Exception:
                 pass
+            # if layer is now empty, detach it from root to restore touch handling
+            try:
+                if len(layer.children) == 0:
+                    try:
+                        root_ref = getattr(self, '_root', None)
+                        if root_ref is not None and layer in list(root_ref.children):
+                            root_ref.remove_widget(layer)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             pass
         
