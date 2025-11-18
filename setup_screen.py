@@ -10,6 +10,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.graphics import Color, Rectangle
 from kivy.uix.button import Button
 from kivy.app import App
+from kivy.clock import Clock
 import os
 
 
@@ -164,7 +165,12 @@ class SetupScreen(Screen):
         panel.add_widget(msg)
         panel.add_widget(btn_row)
 
-        root.add_widget(overlay)
+        # add overlay via central manager so main can clear it safely
+        try:
+            app.add_overlay(overlay)
+        except Exception:
+            # if overlay layer isn't available, swallow - overlay cannot be shown
+            pass
         overlay.add_widget(panel)
 
         def _pos(*a):
@@ -176,9 +182,12 @@ class SetupScreen(Screen):
 
         def _dismiss(*_a):
             try:
-                root.remove_widget(overlay)
+                app.remove_overlay(widget=overlay)
             except Exception:
-                pass
+                try:
+                    root.remove_widget(overlay)
+                except Exception:
+                    pass
 
         btn_cancel.bind(on_press=lambda *_: _dismiss())
 
@@ -223,6 +232,7 @@ class SetupScreen(Screen):
         btn_confirm.bind(on_press=_do_reset)
 
     def refresh_loaded(self):
+        # setup refresh called; verbose debug removed
         data = load_data()
         if data.get('players'):
             self.players = data['players']
@@ -237,6 +247,12 @@ class SetupScreen(Screen):
             self.generate_name_inputs(prefill=self.players)
         else:
             self.generate_name_inputs(prefill=None)
+        # debug snapshot after attempting to load
+        try:
+            # verbose debug removed
+            pass
+        except Exception:
+            pass
 
     def generate_name_inputs(self, *_args, prefill=None):
         old = []
@@ -258,6 +274,17 @@ class SetupScreen(Screen):
             ti.size_hint_y = None
             ti.height = dp(40)
             self.names_area.add_widget(ti)
+
+        # debug and handle case where names_area isn't attached to widget tree yet
+        try:
+            parent_now = getattr(self.names_area, 'parent', None)
+            # if not mounted, retry a few times to allow the screen to be attached
+            retries = getattr(self, '_generate_retry', 0)
+            if parent_now is None and retries < 6:
+                self._generate_retry = retries + 1
+                Clock.schedule_once(lambda dt: self.generate_name_inputs(prefill=prefill), 0.06)
+        except Exception:
+            pass
 
     def _change_count(self, delta):
         try:
@@ -285,7 +312,16 @@ class SetupScreen(Screen):
         data = load_data()
         data['players'] = uniq
         save_data(data)
-        self.manager.get_screen('score').set_players(uniq)
+        # mark game active in running app so other screens may initialize
+        try:
+            from kivy.app import App
+            App.get_running_app()._game_active = True
+        except Exception:
+            pass
+        try:
+            self.manager.get_screen('score').set_players(uniq)
+        except Exception:
+            pass
         self.manager.current = 'score'
 
     def start_and_input(self, *_):
@@ -299,6 +335,11 @@ class SetupScreen(Screen):
         data = load_data()
         data['players'] = uniq
         save_data(data)
+        try:
+            from kivy.app import App
+            App.get_running_app()._game_active = True
+        except Exception:
+            pass
         try:
             self.manager.get_screen('input').set_players(uniq)
         except Exception:

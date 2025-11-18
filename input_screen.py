@@ -101,13 +101,42 @@ class InputScreen(Screen):
 		self.hand_inputs.clear()
 		self.dun_inputs.clear()
 		self.row_by_name.clear()
-		# Debug: print received players so we can verify SetupScreen handed them over
-		try:
-			print(f"[DEBUG] InputScreen.set_players called with: {self.players}")
-		except Exception:
-			pass
+		# If no players provided, ensure the input area is empty and only the
+		# top notice is visible. Hide the local save bar to avoid confusing UI.
+		if not self.players:
+			# clear any existing rows
+			try:
+				self.rows_container.clear_widgets()
+			except Exception:
+				pass
+			# hide save bar if present
+			try:
+				if getattr(self, 'save_bar', None) is not None and getattr(self.save_bar, 'parent', None) is not None:
+					try:
+						self._root_box.remove_widget(self.save_bar)
+					except Exception:
+						self.save_bar.opacity = 0
+			except Exception:
+				pass
+			# adjust layout heights
+			try:
+				self._update_middle_height()
+			except Exception:
+				pass
+			return
 		# rebuild rows according to players length and pass the names so they are filled
 		self._build_player_rows(len(self.players), names=self.players)
+		# ensure save bar is visible when players exist
+		try:
+			if getattr(self, 'save_bar', None) is not None and getattr(self.save_bar, 'parent', None) is None:
+				try:
+					# add save bar back to root below rows
+					self._root_box.add_widget(self.save_bar)
+				except Exception:
+					# fallback: ignore
+					pass
+		except Exception:
+			pass
 		# ensure the scrollview scrolls to bottom so the save button (under rows) is visible
 		try:
 			from kivy.clock import Clock
@@ -144,9 +173,9 @@ class InputScreen(Screen):
 				row = None
 		try:
 			name = getattr(getattr(row, 'name_label', None), 'text', '<no-name>') if row is not None else '<no-row>'
-			print(f"[DEBUG] on_name_long_press for row name: {name}")
+			# verbose debug removed
 		except Exception:
-			print("[DEBUG] on_name_long_press for unknown row")
+			pass
 		if row is not None:
 			self._start_simple_drag(row, touch)
 
@@ -202,15 +231,17 @@ class InputScreen(Screen):
 		# Debug: show what was rendered and what input mappings we saved
 		try:
 			rendered = [getattr(r, 'name_label').text if getattr(r, 'name_label', None) is not None else '' for r in self.rows_container.children[::-1]]
-			print(f"[DEBUG] InputScreen._build_player_rows rendered names (top->bottom): {rendered}")
+			# verbose debug removed
 		except Exception:
 			pass
 		try:
-			print(f"[DEBUG] InputScreen.hand_inputs keys: {list(self.hand_inputs.keys())}")
+			# verbose debug removed
+			pass
 		except Exception:
 			pass
 		try:
-			print(f"[DEBUG] InputScreen.dun_inputs keys: {list(self.dun_inputs.keys())}")
+			# verbose debug removed
+			pass
 		except Exception:
 			pass
 
@@ -290,20 +321,7 @@ class InputScreen(Screen):
 
 	# helpers to render a given top->bottom order list into rows_container
 	def _render_rows_from_order(self, top_down_list: List[object]):
-		# debug: show the top->bottom list we are about to render
-		try:
-			names = []
-			for w in top_down_list:
-				try:
-					if w is getattr(self, '_simple_placeholder', None):
-						names.append('<ph>')
-					else:
-						names.append(getattr(getattr(w, 'name_label', None), 'text', '<widget>'))
-				except Exception:
-					names.append('<err>')
-			print(f"[DEBUG] _render_rows_from_order top->bottom names: {names}")
-		except Exception:
-			pass
+		# verbose debug removed for render order
 		# actually render
 		try:
 			self.rows_container.clear_widgets()
@@ -320,20 +338,7 @@ class InputScreen(Screen):
 						pass
 		except Exception:
 			pass
-		# debug: after adding, show actual children top->bottom
-		try:
-			actual = []
-			for r in self.rows_container.children[::-1]:
-				try:
-					if r is getattr(self, '_simple_placeholder', None):
-						actual.append('<ph>')
-					else:
-						actual.append(getattr(getattr(r, 'name_label', None), 'text', '<widget>'))
-				except Exception:
-					actual.append('<err>')
-				print(f"[DEBUG] rows_container children after render (top->bottom): {actual}")
-		except Exception:
-			pass
+		# verbose post-render diagnostics removed
 		# After rendering, enforce rank/trophy visuals to be position-based
 		try:
 			children_tb = list(self.rows_container.children)[::-1]
@@ -372,24 +377,8 @@ class InputScreen(Screen):
 		the row as an overlay following the pointer, on release restore original position.
 		This does NOT change ordering permanently.
 		"""
-		# debug: report which row triggered the drag and the current rows order
-		try:
-			name = getattr(getattr(row, 'name_label', None), 'text', '<no-name>')
-			print(f"[DEBUG] _start_simple_drag called for row name: {name}")
-		except Exception:
-			print("[DEBUG] _start_simple_drag called for row: <unknown>")
-		# inspect current top->bottom list and indexes for debugging
-		try:
-			children_tb = list(self.rows_container.children)[::-1]
-			top_names = [getattr(getattr(r, 'name_label', None), 'text', '<no-name>') for r in children_tb]
-			print(f"[DEBUG] rows_container top->bottom names: {top_names}")
-			try:
-				orig_idx = children_tb.index(row)
-			except Exception:
-				orig_idx = None
-			print(f"[DEBUG] computed orig_idx={orig_idx} for row {name} (row obj={row})")
-		except Exception:
-			pass
+		# verbose drag-start diagnostics removed
+		# verbose drag-order inspection removed
 		if getattr(self, '_simple_drag_active', False):
 			return
 		self._simple_drag_active = True
@@ -431,7 +420,7 @@ class InputScreen(Screen):
 			insert_at = len(new_order)
 		else:
 			insert_at = min(len(new_order), orig_idx)
-		print(f"[DEBUG] inserting placeholder at position {insert_at} (0-based in top->bottom list) after removing the dragged row")
+		# verbose placeholder insertion debug removed
 		new_order.insert(insert_at, ph)
 		self._simple_placeholder = ph
 		# render with placeholder. The placeholder sits in the same slot as the
@@ -448,30 +437,25 @@ class InputScreen(Screen):
 		try:
 			try:
 				self.rows_container.remove_widget(row)
-				# debug: show children after removal
-				try:
-					actual = [getattr(getattr(r, 'name_label', None), 'text', '<ph>' if r is getattr(self, '_simple_placeholder', None) else '<widget>') for r in self.rows_container.children[::-1]]
-					print(f"[DEBUG] rows_container children after remove_widget (top->bottom): {actual}")
-				except Exception:
-					pass
+					# verbose post-remove diagnostics removed
 			except Exception:
 				pass
 			row.size_hint = (None, None)
 			row.width = self.rows_container.width
 			row.height = getattr(row, 'height', dp(56))
 			row.pos = (win_x, win_y)
-			# debug: show root children count before adding overlay
+					# verbose root children before add overlay removed
+			# add overlay via app helper so main can manage overlays centrally
 			try:
-				root_children_before = len(App.get_running_app().root.children)
-				print(f"[DEBUG] root children before add overlay: {root_children_before}")
+				app = App.get_running_app()
+				app.add_overlay(row)
 			except Exception:
-				pass
-			App.get_running_app().root.add_widget(row)
-			try:
-				root_children_after = len(App.get_running_app().root.children)
-				print(f"[DEBUG] root children after add overlay: {root_children_after}")
-			except Exception:
-				pass
+				# fallback: add directly to root
+				try:
+					App.get_running_app().root.add_widget(row)
+				except Exception:
+					pass
+					# verbose root children after add overlay removed
 		except Exception:
 			# abort and restore
 			self._render_rows_from_order(self._simple_original_order)
@@ -544,13 +528,17 @@ class InputScreen(Screen):
 			Window.unbind(on_touch_up=self._simple_drag_release)
 		except Exception:
 			pass
-		# remove overlay from root
+		# remove overlay from app overlay layer (or fallback to root)
 		try:
-			root = App.get_running_app().root
+			app = App.get_running_app()
 			try:
-				root.remove_widget(self._simple_drag_row)
+				app.remove_overlay(widget=self._simple_drag_row)
 			except Exception:
-				pass
+				# fallback: direct removal
+				try:
+					app.root.remove_widget(self._simple_drag_row)
+				except Exception:
+					pass
 		except Exception:
 			pass
 		# compute final order: replace placeholder with the dragged row (permanent move)
@@ -742,7 +730,13 @@ class InputScreen(Screen):
 		panel.add_widget(info)
 		panel.add_widget(btn_row)
 
-		root.add_widget(overlay)
+		# add overlay via app helper so main can centrally manage overlay_layer
+		try:
+			app = App.get_running_app()
+			app.add_overlay(overlay)
+		except Exception:
+			# if overlay layer isn't available, swallow - overlay cannot be shown
+			pass
 		overlay.add_widget(panel)
 
 		def _pos(*a):
@@ -754,7 +748,16 @@ class InputScreen(Screen):
 
 		def _dismiss(*a):
 			try:
-				root.remove_widget(overlay)
+				# use central overlay manager
+				app = App.get_running_app()
+				try:
+					app.remove_overlay(widget=overlay)
+				except Exception:
+					# fallback to direct removal
+					try:
+						root.remove_widget(overlay)
+					except Exception:
+						pass
 			except Exception:
 				pass
 
@@ -835,7 +838,11 @@ class InputScreen(Screen):
 		panel.add_widget(info)
 		panel.add_widget(btn_row)
 
-		root.add_widget(overlay)
+		# add overlay via app helper so it's managed centrally
+		try:
+			app.add_overlay(overlay)
+		except Exception:
+			pass
 		overlay.add_widget(panel)
 
 		def _pos(*a):
@@ -847,9 +854,12 @@ class InputScreen(Screen):
 
 		def _dismiss(*a):
 			try:
-				root.remove_widget(overlay)
+				app.remove_overlay(widget=overlay)
 			except Exception:
-				pass
+				try:
+					root.remove_widget(overlay)
+				except Exception:
+					pass
 
 		def _do_save(*_a):
 			dirpath = chooser.path
@@ -946,15 +956,21 @@ class InputScreen(Screen):
 		_pos_panel()
 		root.bind(size=lambda *_: _pos_panel())
 
-		# add overlay to root
-		root.add_widget(overlay)
+		# add overlay to app overlay layer (centralized)
+		try:
+			app.add_overlay(overlay)
+		except Exception:
+			pass
 
 		# dismiss action
 		def _dismiss(*a):
 			try:
-				root.remove_widget(overlay)
+				app.remove_overlay(widget=overlay)
 			except Exception:
-				pass
+				try:
+					root.remove_widget(overlay)
+				except Exception:
+					pass
 
 		btn.bind(on_press=_dismiss)
 		# also dismiss on backdrop touch
