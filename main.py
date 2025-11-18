@@ -259,6 +259,29 @@ class PokerScoreApp(App):
             except Exception:
                 pass
 
+ 
+            try:
+                # update tab label colors immediately for the newly selected tab
+                for nm, b in tab_buttons.items():
+                    try:
+                        if nm == name:
+                            b._label.color = _theme.ACCENT
+                            try:
+                                b._label.text = f"[b]{b._raw_text}[/b]"
+                                b._label.font_size = sp(16)
+                            except Exception:
+                                pass
+                        else:
+                            b._label.color = _theme.TEXT_COLOR
+                            try:
+                                b._label.text = b._raw_text
+                                b._label.font_size = _theme.SMALL_FONT
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         def _on_theme_change():
             try:
                 # update tab label colors according to current tab
