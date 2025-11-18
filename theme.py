@@ -85,6 +85,13 @@ _candidate = os.path.join(os.path.dirname(__file__), "assets", "fonts", "NotoSan
 if os.path.exists(_candidate):
     try:
         LabelBase.register(name="AppFont", fn_regular=_candidate)
+        # Also register/override the common default 'Roboto' font so Kivy widgets
+        # that rely on the default font will render Chinese glyphs without
+        # needing to set `font_name` everywhere.
+        try:
+            LabelBase.register(name="Roboto", fn_regular=_candidate)
+        except Exception:
+            pass
         FONT_NAME = "AppFont"
     except Exception:
         FONT_NAME = _candidate
@@ -124,3 +131,58 @@ def unregister_theme_listener(cb):
             _THEME_LISTENERS.remove(cb)
     except Exception:
         pass
+
+
+# Global widget style injection:
+# Apply the project's `FONT_NAME` and `TEXT_COLOR` to common widget classes so
+# newly created pages don't need to set `font_name` individually.
+def _inject_global_widget_defaults():
+    try:
+        from kivy.uix.label import Label
+        from kivy.uix.textinput import TextInput
+
+        # Limit injection to Label and TextInput only to avoid overwriting
+        # explicit icon fonts set on Buttons/Spinners (e.g. FontAwesome).
+        classes = [Label, TextInput]
+
+        for cls in classes:
+            # avoid double-injection
+            if getattr(cls, '_theme_injected', False):
+                continue
+
+            orig_init = getattr(cls, '__init__', None)
+            if not orig_init:
+                continue
+
+            def make_init(orig):
+                def new_init(self, *args, **kwargs):
+                    # Call original initializer
+                    orig(self, *args, **kwargs)
+                    # Apply font and color when available. Only set font_name
+                    # if it's not already set or equals Kivy's DEFAULT_FONT so
+                    # we don't overwrite explicit icon fonts (e.g. FA).
+                    try:
+                        from kivy.core.text import DEFAULT_FONT
+                        cur = getattr(self, 'font_name', None)
+                        if FONT_NAME and (not cur or cur == DEFAULT_FONT):
+                            self.font_name = FONT_NAME
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, 'color') and TEXT_COLOR and getattr(self, 'color', None) != TEXT_COLOR:
+                            self.color = TEXT_COLOR
+                    except Exception:
+                        pass
+                return new_init
+
+            try:
+                setattr(cls, '__init__', make_init(orig_init))
+                setattr(cls, '_theme_injected', True)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+# perform injection at import time
+_inject_global_widget_defaults()
