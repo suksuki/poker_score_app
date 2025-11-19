@@ -258,9 +258,11 @@ def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
             # If FontAwesome not available, try bundled PNG icons
             if icon_w is None:
                 try:
+                    from kivy.resources import resource_find
                     img_src = _gold if rank == 1 else _gray
-                    if os.path.exists(img_src):
-                        icon_w = Image(source=img_src, size_hint=(None,1), width=dp(20))
+                    found = resource_find(img_src)
+                    if found:
+                        icon_w = Image(source=found, size_hint=(None,1), width=dp(20))
                 except Exception:
                     icon_w = None
             # final fallback: use emoji label

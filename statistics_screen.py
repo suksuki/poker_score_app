@@ -580,7 +580,7 @@ class StatisticsScreen(Screen):
 
         if summary_mode:
             items = list(per.items()) if per else []
-            # apply sort if requested
+            # apply sort if requested (keeps player order)
             if self.sort_column:
                 key = self.sort_column
                 if key == 'name':
@@ -590,99 +590,87 @@ class StatisticsScreen(Screen):
             else:
                 items = sorted(items, key=lambda x: -x[1].get('total', 0)) if items else []
 
-            # prepare data entries (do not create widgets for all rows at once)
-            summary_entries = [(name, stats) for name, stats in items]
+            # transpose layout: metrics as rows, players as columns
+            player_names = [name for name, _ in items]
+            player_map = {name: stats for name, stats in items}
 
-            # chunked renderer: create and add up to `chunk_size` rows per frame
-            chunk_size = getattr(self, 'CHUNK_SIZE', 20)
-            total_entries = len(summary_entries)
-            idx_state = {'i': 0}
+            # metrics keys and display titles (match previous titles order)
+            metrics_keys = ['total', 'base', 'base_avg', 'avg_rank', 'dun_count', 'first_count', 'last_count', 'games_played']
+            metrics_titles = titles[1:]
 
-            def _add_summary_chunk(dt):
+            # recompute content columns: first col for metric label + one col per player
+            content_cols = 1 + max(1, len(player_names))
+            content_width = compute_width_for_columns(content_cols)
+            self.header.clear_widgets()
+            self.header.cols = content_cols
+            self.header.size_hint_x = None
+            self.header.width = content_width
+            try:
+                self.hv_child.width = content_width
+            except Exception:
+                pass
+
+            # header: first empty cell then player names
+            lbl_metric = Button(text=f"[b]{'指标'}[/b]", markup=True, size_hint_x=None, size_hint_y=None, height=dp(28))
+            try:
+                lbl_metric.color = TEXT_COLOR
+                lbl_metric.background_normal = ''
+                lbl_metric.background_down = ''
+                lbl_metric.width = dp(140)
+                if FONT_NAME:
+                    lbl_metric.font_name = FONT_NAME
+            except Exception:
+                pass
+            self.header.add_widget(lbl_metric)
+            for pname in player_names:
+                btn = Button(text=f"[b]{pname}[/b]", markup=True, size_hint_x=None, size_hint_y=None, height=dp(28))
                 try:
-                    i = idx_state['i']
-                    end = min(i + chunk_size, total_entries)
-                    for j in range(i, end):
-                        name, stats = summary_entries[j]
-                        row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(32), size_hint_x=None)
-                        row.width = content_width
-                        lbl_name = Label(text=str(name), halign='left', valign='top', size_hint_x=None, size_hint_y=None, height=dp(32))
-                        try:
-                            lbl_name.color = TEXT_COLOR
-                            if FONT_NAME:
-                                lbl_name.font_name = FONT_NAME
-                        except Exception:
-                            pass
-                        lbl_name.width = dp(140)
-                        row.add_widget(lbl_name)
-                        nums = [stats.get('total',0), stats.get('base',0), stats.get('base_avg',0), stats.get('avg_rank',0), stats.get('dun_count',0), stats.get('first_count',0), stats.get('last_count',0), stats.get('games_played',0)]
-                        for n in nums:
-                            lbl = Label(text=self._fmt(n,2 if isinstance(n,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(32))
-                            try:
-                                lbl.color = TEXT_COLOR
-                                if FONT_NAME:
-                                    lbl.font_name = FONT_NAME
-                                lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-                            except Exception:
-                                pass
-                            lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
-                            row.add_widget(lbl)
-                        self.rows_container.add_widget(row)
-                        try:
-                            # thin divider between rows
-                            self.rows_container.add_widget(Separator())
-                        except Exception:
-                            pass
-                    idx_state['i'] = end
-                    if end >= total_entries:
-                        try:
-                            if getattr(self, '_chunk_ev', None) is not None:
-                                try:
-                                    self._chunk_ev.cancel()
-                                except Exception:
-                                    pass
-                                self._chunk_ev = None
-                        except Exception:
-                            pass
-                        return
+                    btn.color = TEXT_COLOR
+                    btn.background_normal = ''
+                    btn.background_down = ''
+                    btn.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
+                    if FONT_NAME:
+                        btn.font_name = FONT_NAME
                 except Exception:
                     pass
+                self.header.add_widget(btn)
 
-            # start chunked rendering (schedule at ~60FPS)
-            try:
-                self._chunk_ev = Clock.schedule_interval(_add_summary_chunk, 1.0 / 60.0)
-            except Exception:
-                # fallback: render all at once
-                for name, stats in summary_entries:
-                    row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(32), size_hint_x=None)
-                    row.width = content_width
-                    lbl_name = Label(text=str(name), halign='left', valign='top', size_hint_x=None, size_hint_y=None, height=dp(32))
+            # render metric rows (no chunking needed; few rows)
+            for mi, mkey in enumerate(metrics_keys):
+                row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(32), size_hint_x=None)
+                row.width = content_width
+                # metric label
+                lbl = Label(text=metrics_titles[mi] if mi < len(metrics_titles) else str(mkey), halign='left', valign='top', size_hint_x=None, size_hint_y=None, height=dp(32))
+                try:
+                    lbl.color = TEXT_COLOR
+                    if FONT_NAME:
+                        lbl.font_name = FONT_NAME
+                except Exception:
+                    pass
+                lbl.width = dp(140)
+                row.add_widget(lbl)
+
+                # values per player
+                for pname in player_names:
+                    stats = player_map.get(pname, {})
+                    val = stats.get(mkey, 0)
+                    text = self._fmt(val, 2 if isinstance(val, float) else 0)
+                    vlbl = Label(text=text, size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(32))
                     try:
-                        lbl_name.color = TEXT_COLOR
+                        vlbl.color = TEXT_COLOR
                         if FONT_NAME:
-                            lbl_name.font_name = FONT_NAME
+                            vlbl.font_name = FONT_NAME
+                        vlbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
                     except Exception:
                         pass
-                    lbl_name.width = dp(140)
-                    row.add_widget(lbl_name)
-                    nums = [stats.get('total',0), stats.get('base',0), stats.get('base_avg',0), stats.get('avg_rank',0), stats.get('dun_count',0), stats.get('first_count',0), stats.get('last_count',0), stats.get('games_played',0)]
-                    for n in nums:
-                        lbl = Label(text=self._fmt(n,2 if isinstance(n,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(32))
-                        try:
-                            lbl.color = TEXT_COLOR
-                            if FONT_NAME:
-                                lbl.font_name = FONT_NAME
-                            lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-                        except Exception:
-                            pass
-                        lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
-                        row.add_widget(lbl)
-                    self.rows_container.add_widget(row)
-                    try:
-                        # thin divider between rows (fallback path)
-                        self.rows_container.add_widget(Separator())
-                    except Exception:
-                        pass
+                    vlbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
+                    row.add_widget(vlbl)
+
+                self.rows_container.add_widget(row)
+                try:
+                    self.rows_container.add_widget(Separator())
+                except Exception:
+                    pass
         else:
             # detail view: if '全部' selected, show all rounds; otherwise filter by player
             if spinner_text in (None, '全部'):
