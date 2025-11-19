@@ -325,12 +325,17 @@ class StatisticsScreen(Screen):
 
             btn = Button(text=f"[b]{t}{arrow}[/b]", markup=True, size_hint_x=None, size_hint_y=None, height=dp(28))
             try:
-                btn.color = TEXT_COLOR
+                # highlight active sorted column with ACCENT background
+                if col_key and self.sort_column == col_key:
+                    btn.background_color = ACCENT if ACCENT else (0.2, 0.5, 0.8, 1)
+                    btn.color = (1, 1, 1, 1)
+                else:
+                    btn.color = TEXT_COLOR
+                    btn.background_color = (0, 0, 0, 0)
                 if FONT_NAME:
                     btn.font_name = FONT_NAME
                 btn.background_normal = ''
                 btn.background_down = ''
-                btn.background_color = (0, 0, 0, 0)
                 # bind sorting action
                 def _on_header_press(instance, key=col_key):
                     try:
@@ -437,10 +442,58 @@ class StatisticsScreen(Screen):
             path = os.path.join(os.getcwd(), 'statistics_export.csv')
             spinner_text = getattr(self.player_spinner, 'text', None)
             if spinner_text in (None, '全部'):
+                # build a sorted list matching UI order
                 per = stats_helpers.player_stats_from_data(self.data)
-                stats_helpers.export_stats_csv(per, path)
+                items = list(per.items())
+                if self.sort_column:
+                    key = self.sort_column
+                    if key == 'name':
+                        items.sort(key=lambda x: str(x[0]).lower(), reverse=self.sort_reverse)
+                    else:
+                        items.sort(key=lambda x: x[1].get(key, 0), reverse=self.sort_reverse)
+                else:
+                    items = sorted(items, key=lambda x: -x[1].get('total', 0)) if items else []
+                # write CSV preserving this order
+                import csv
+                headers = ['player', 'total', 'base', 'base_avg', 'avg_rank', 'dun_count', 'avg_dun', 'first_count', 'last_count', 'games_played']
+                with open(path, 'w', newline='', encoding='utf-8') as f:
+                    w = csv.writer(f)
+                    w.writerow(headers)
+                    for p, stats in items:
+                        w.writerow([
+                            p,
+                            stats.get('total', 0),
+                            stats.get('base', 0),
+                            stats.get('base_avg', 0),
+                            stats.get('avg_rank', ''),
+                            stats.get('dun_count', 0),
+                            stats.get('avg_dun', 0),
+                            stats.get('first_count', 0),
+                            stats.get('last_count', 0),
+                            stats.get('games_played', 0),
+                        ])
             else:
-                stats_helpers.export_rounds_csv(self.data, path, player_filter=[spinner_text])
+                # detail view: export rounds respecting current filter and sort
+                details = stats_helpers.rounds_flat_list(self.data, player_filter=[spinner_text])
+                if self.sort_column:
+                    try:
+                        details.sort(key=lambda d: d.get(self.sort_column, 0), reverse=self.sort_reverse)
+                    except Exception:
+                        pass
+                import csv
+                headers = ['round_index', 'player', 'score', 'base', 'rank', 'dun']
+                with open(path, 'w', newline='', encoding='utf-8') as f:
+                    w = csv.writer(f)
+                    w.writerow(headers)
+                    for r in details:
+                        w.writerow([
+                            r.get('round_index'),
+                            r.get('player'),
+                            r.get('score'),
+                            r.get('base'),
+                            r.get('rank') if r.get('rank') is not None else '',
+                            r.get('dun'),
+                        ])
             print('Exported statistics to', path)
         except Exception as e:
             print('Failed to export CSV', e)
