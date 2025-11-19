@@ -11,6 +11,8 @@ from theme import TEXT_COLOR, FONT_NAME, ACCENT, BTN_BG
 from storage import load_data, save_data, safe_save_json, safe_load_json
 import stats_helpers
 import os
+import random
+from datetime import datetime, timedelta
 
 
 class StatisticsScreen(Screen):
@@ -124,8 +126,22 @@ class StatisticsScreen(Screen):
         except Exception:
             pass
         refresh_btn.bind(on_press=lambda *_: self.refresh())
+        # generate test data button
+        gen_btn = Button(text='生成100条测试', size_hint_x=None, width=dp(140))
+        try:
+            g_gray = (0.36, 0.36, 0.38, 1)
+            gen_btn.background_normal = ''
+            gen_btn.background_down = ''
+            gen_btn.background_color = g_gray
+            gen_btn.color = (1, 1, 1, 1)
+            if FONT_NAME:
+                gen_btn.font_name = FONT_NAME
+        except Exception:
+            pass
+        gen_btn.bind(on_press=lambda *_: self.generate_test_data(100))
         fb.add_widget(self.player_spinner)
         fb.add_widget(refresh_btn)
+        fb.add_widget(gen_btn)
         middle.add_widget(fb)
 
         # summary box
@@ -505,6 +521,67 @@ class StatisticsScreen(Screen):
             print('Exported JSON to', path)
         except Exception as e:
             print('Failed to export JSON', e)
+
+    def generate_test_data(self, n=100):
+        """Generate n random rounds for the currently selected player (for testing).
+        Appends rounds to `self.data['rounds']`, ensures player is recorded in `players`, saves and refreshes.
+        """
+        try:
+            # ensure data structure
+            if not isinstance(self.data, dict):
+                self.data = load_data() or {}
+            if 'rounds' not in self.data or not isinstance(self.data['rounds'], list):
+                self.data['rounds'] = []
+            if 'players' not in self.data or not isinstance(self.data['players'], list):
+                self.data['players'] = []
+
+            spinner_text = getattr(self.player_spinner, 'text', None)
+            if spinner_text in (None, '全部'):
+                # pick first existing player or create a test player
+                players = self.data.get('players') or []
+                player = players[0] if players else 'TestPlayer'
+            else:
+                player = spinner_text
+
+            # ensure player in players list
+            if player not in self.data.get('players', []):
+                self.data.setdefault('players', []).append(player)
+
+            now = datetime.now()
+            for i in range(n):
+                # create a timestamp decreasing by 1 minute each
+                dt = now - timedelta(minutes=i)
+                # random values: score can be negative or positive
+                score = random.randint(-100, 400)
+                base = random.randint(0, 120)
+                rank = random.randint(1, 4)
+                dun = random.randint(0, 3)
+                rnd = {
+                    'date': dt.isoformat(),
+                    'results': [
+                        {
+                            'player': player,
+                            'score': score,
+                            'base': base,
+                            'rank': rank,
+                            'dun': dun,
+                        }
+                    ]
+                }
+                self.data['rounds'].append(rnd)
+
+            # save and refresh
+            try:
+                save_data(self.data)
+            except Exception:
+                try:
+                    safe_save_json(os.path.join(os.getcwd(), 'score_data_export.json'), self.data)
+                except Exception:
+                    pass
+            print(f'Generated {n} test rounds for player: {player}')
+            self.refresh()
+        except Exception as e:
+            print('Failed to generate test data', e)
 
     def import_json(self):
         try:
