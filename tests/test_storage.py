@@ -31,7 +31,13 @@ def test_save_and_load_data_monkeypatch(tmp_path, monkeypatch):
     storage.save_data(sample)
     assert p.exists()
     loaded = storage.load_data()
-    assert loaded == sample
+    # players preserved
+    assert loaded.get('players') == sample.get('players')
+    # rounds preserved (total map present)
+    assert isinstance(loaded.get('rounds'), list) and len(loaded['rounds']) == 1
+    assert loaded['rounds'][0].get('total') == sample['rounds'][0].get('total')
+    # ensure missing date was backfilled
+    assert 'date' in loaded['rounds'][0]
 
 
 def test_ensure_backup_creates_copy(tmp_path, monkeypatch):

@@ -7,7 +7,26 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                # ensure structure
+                if not isinstance(data, dict):
+                    return {"players": [], "rounds": []}
+                rounds = data.get('rounds')
+                # ensure rounds is a list
+                if isinstance(rounds, list):
+                    import datetime as _dt
+                    for r in rounds:
+                        try:
+                            if isinstance(r, dict) and 'date' not in r:
+                                # best-effort: add ISO timestamp for missing dates
+                                r['date'] = _dt.datetime.now().isoformat()
+                        except Exception:
+                            pass
+                else:
+                    data['rounds'] = []
+                if 'players' not in data or not isinstance(data.get('players'), list):
+                    data['players'] = []
+                return data
         except Exception:
             pass
     return {"players": [], "rounds": []}

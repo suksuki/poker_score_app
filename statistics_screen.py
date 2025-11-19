@@ -321,7 +321,8 @@ class StatisticsScreen(Screen):
         if summary_mode:
             titles = ['玩家', '总分', '基础', '基础均', '平均名次', '顿数', '头名', '末名', '场次']
         else:
-            titles = ['场次', '玩家', '得分', '基础', '名次', '顿数']
+            # include a date column for the detail view
+            titles = ['日期', '场次', '玩家', '得分', '基础', '名次', '顿数']
         # compute content width based on columns so smaller screens can scroll
         def compute_width_for_columns(n_cols):
             name_col = dp(140)
@@ -347,7 +348,7 @@ class StatisticsScreen(Screen):
             pass
         # build header as clickable buttons to allow sorting
         summary_keys = ['name', 'total', 'base', 'base_avg', 'avg_rank', 'dun_count', 'first_count', 'last_count', 'games_played']
-        detail_keys = ['round_index', 'player', 'score', 'base', 'rank', 'dun']
+        detail_keys = ['date', 'round_index', 'player', 'score', 'base', 'rank', 'dun']
         for t in titles:
             # map display title to column key
             try:
@@ -524,9 +525,35 @@ class StatisticsScreen(Screen):
                         d = detail_entries[j]
                         row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(28), size_hint_x=None)
                         row.width = content_width
-                        vals = [d.get('round_index'), d.get('player'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
+                        vals = [d.get('date'), d.get('round_index'), d.get('player'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
                         for col_i, v in enumerate(vals):
-                            if col_i == 1:
+                            # date column: show short yyyy-mm-dd when possible
+                            if col_i == 0:
+                                if v is None:
+                                    text = ''
+                                else:
+                                    try:
+                                        if isinstance(v, str) and 'T' in v:
+                                            # ISO format: keep date and hour:minute
+                                            parts = v.split('T')
+                                            date_part = parts[0]
+                                            time_part = parts[1] if len(parts) > 1 else ''
+                                            time_short = time_part.split(':')[:2]
+                                            text = f"{date_part} {':'.join(time_short)}"
+                                        elif isinstance(v, str) and ' ' in v:
+                                            parts = v.split(' ')
+                                            date_part = parts[0]
+                                            time_part = parts[1] if len(parts) > 1 else ''
+                                            time_short = time_part.split(':')[:2]
+                                            text = f"{date_part} {':'.join(time_short)}"
+                                        elif hasattr(v, 'strftime'):
+                                            text = v.strftime('%Y-%m-%d %H:%M')
+                                        else:
+                                            text = str(v)
+                                    except Exception:
+                                        text = str(v)
+                            elif col_i == 2:
+                                # player/name column
                                 text = str(v)
                             else:
                                 text = self._fmt(v, 2 if isinstance(v, float) else 0)
@@ -565,9 +592,26 @@ class StatisticsScreen(Screen):
                 for d in detail_entries:
                     row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(28), size_hint_x=None)
                     row.width = content_width
-                    vals = [d.get('round_index'), d.get('player'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
+                    vals = [d.get('date'), d.get('round_index'), d.get('player'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
                     for col_i, v in enumerate(vals):
-                        if col_i == 1:
+                        # date column: show short yyyy-mm-dd when possible
+                        if col_i == 0:
+                            if v is None:
+                                text = ''
+                            else:
+                                try:
+                                    if isinstance(v, str) and 'T' in v:
+                                        text = v.split('T')[0]
+                                    elif isinstance(v, str) and ' ' in v:
+                                        text = v.split(' ')[0]
+                                    elif hasattr(v, 'strftime'):
+                                        text = v.strftime('%Y-%m-%d')
+                                    else:
+                                        text = str(v)
+                                except Exception:
+                                    text = str(v)
+                        elif col_i == 2:
+                            # player/name column
                             text = str(v)
                         else:
                             text = self._fmt(v, 2 if isinstance(v, float) else 0)

@@ -329,6 +329,7 @@ def rounds_flat_list(data: Dict[str, Any], player_filter: Optional[Iterable[str]
                 continue
             out.append({
                 'round_index': i,
+                'date': r.get('date') if isinstance(r, dict) else None,
                 'player': name,
                 'score': res.get('score') or res.get('points') or 0,
                 'base': res.get('base') or 0,
@@ -346,12 +347,13 @@ def export_rounds_csv(data: Dict[str, Any], path: str, player_filter: Optional[I
     """
     rows = rounds_flat_list(data, player_filter=player_filter)
     import csv
-    headers = ['round_index', 'player', 'score', 'base', 'rank', 'dun']
+    headers = ['date', 'round_index', 'player', 'score', 'base', 'rank', 'dun']
     with open(path, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         w.writerow(headers)
         for r in rows:
             w.writerow([
+                r.get('date', ''),
                 r.get('round_index'),
                 r.get('player'),
                 r.get('score'),
