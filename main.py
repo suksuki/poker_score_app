@@ -249,7 +249,23 @@ class PokerScoreApp(App):
                                         pass
                             else:
                                 try:
-                                    scr.board_box.clear_widgets()
+                                    # Always rebuild the score board when navigating to the score
+                                    # page so previously saved rounds are visible even if no
+                                    # active game is running.
+                                    if hasattr(scr, 'rebuild_board'):
+                                        try:
+                                            scr.rebuild_board()
+                                        except Exception:
+                                            # fallback to clearing if rebuild fails for some reason
+                                            try:
+                                                scr.board_box.clear_widgets()
+                                            except Exception:
+                                                pass
+                                    else:
+                                        try:
+                                            scr.board_box.clear_widgets()
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
                     except Exception:
@@ -602,6 +618,28 @@ class PokerScoreApp(App):
             pass
         try:
             save_data(data)
+        except Exception:
+            pass
+        # best-effort cleanup: cancel known scheduled events on screens and clear overlays
+        try:
+            # cancel any lingering drag poll or other Clock events stored on screens
+            for screen_name in ('input', 'setup', 'score', 'statistics'):
+                try:
+                    scr = self._sm.get_screen(screen_name)
+                    # common event attribute used by input drag logic
+                    ev = getattr(scr, '_simple_drag_ev', None)
+                    if ev is not None:
+                        try:
+                            ev.cancel()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            # remove any overlays to avoid UI elements lingering after exit
+            self.clear_overlays()
         except Exception:
             pass
 

@@ -15,6 +15,7 @@ from kivy.uix.textinput import TextInput
 from widgets import L, ScoreInputItem, IconButton, IconTextButton, TrophyWidget, BTN
 from storage import load_data, save_data, to_int, DUN_VALUE
 from kivy.app import App
+from datetime import datetime
 from kivy.core.window import Window
 from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout as KBox
@@ -463,7 +464,8 @@ class InputScreen(Screen):
 			return
 
 		# follow pointer via polling
-		self._simple_drag_ev = Clock.schedule_interval(self._simple_drag_poll, 0)
+		# poll at up to 60 FPS instead of unbounded (0) to reduce CPU usage
+		self._simple_drag_ev = Clock.schedule_interval(self._simple_drag_poll, 1.0 / 60.0)
 		Window.bind(on_touch_up=self._simple_drag_release)
 
 	def _simple_drag_poll(self, dt):
@@ -641,7 +643,7 @@ class InputScreen(Screen):
 			# total: base + dun_value (simple sum)
 			total[key] = basic[key] + dun_vals.get(key, 0)
 
-		# build round dict similar to existing format
+		# build round dict similar to existing format (include timestamp)
 		round_obj = {
 			"breakdown": {
 				"basic": basic,
@@ -650,6 +652,7 @@ class InputScreen(Screen):
 			},
 			"total": total,
 			"ranks": ranks,
+			"date": datetime.now().isoformat(),
 		}
 
 		# append and save
