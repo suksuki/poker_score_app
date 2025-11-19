@@ -137,7 +137,8 @@ class StatisticsScreen(Screen):
         # inside so we can control the total content width and allow horizontal
         # scrolling on narrow screens.
         self.hv = ScrollView(size_hint=(1, 1), do_scroll_x=True, do_scroll_y=True)
-        self.hv_child = BoxLayout(orientation='vertical', size_hint_x=None)
+        # hv_child should have no vertical size hint so ScrollView can size it
+        self.hv_child = BoxLayout(orientation='vertical', size_hint_x=None, size_hint_y=None)
 
         # header will be created with dynamic cols later in refresh; keep a ref
         self.header = GridLayout(cols=9, size_hint_y=None, height=dp(28), size_hint_x=None)
@@ -149,6 +150,34 @@ class StatisticsScreen(Screen):
         self.hv_child.add_widget(self.rows_container)
 
         self.hv.add_widget(self.hv_child)
+        # keep hv_child height in sync with header + rows so there is no
+        # large empty region inside the ScrollView
+        try:
+            def _update_hv_height(*a):
+                try:
+                    h = 0
+                    if getattr(self, 'header', None) is not None:
+                        h += self.header.height
+                    if getattr(self, 'rows_container', None) is not None:
+                        h += self.rows_container.height
+                    # ensure at least visible area
+                    self.hv_child.height = max(h, self.hv.height)
+                except Exception:
+                    pass
+
+            # bind to changes
+            try:
+                self.rows_container.bind(height=lambda inst, *_: _update_hv_height())
+            except Exception:
+                pass
+            try:
+                self.header.bind(height=lambda inst, *_: _update_hv_height())
+            except Exception:
+                pass
+            # initial update
+            Clock.schedule_once(lambda dt: _update_hv_height(), 0)
+        except Exception:
+            pass
         middle.add_widget(self.hv)
 
         root.add_widget(middle)
@@ -190,6 +219,9 @@ class StatisticsScreen(Screen):
             self.data = load_data() or {}
         except Exception:
             self.data = {}
+        # sorting state
+        self.sort_column = None  # column key
+        self.sort_reverse = False  # True => descending
         players = self.data.get('players') or []
         try:
             self.player_spinner.values = ['全部'] + players
@@ -270,29 +302,78 @@ class StatisticsScreen(Screen):
         self.header.cols = content_cols
         self.header.size_hint_x = None
         self.header.width = content_width
+        # ensure the hv child width matches content width so vertical layout
+        # doesn't center unexpectedly
+        try:
+            self.hv_child.width = content_width
+        except Exception:
+            pass
+        # build header as clickable buttons to allow sorting
+        summary_keys = ['name', 'total', 'base', 'base_avg', 'avg_rank', 'dun_count', 'first_count', 'last_count', 'games_played']
+        detail_keys = ['round_index', 'score', 'base', 'rank', 'dun']
         for t in titles:
-            lbl = Label(text=f"[b]{t}[/b]", markup=True, size_hint_x=None)
+            # map display title to column key
             try:
-                lbl.color = TEXT_COLOR
+                col_key = summary_keys[titles.index(t)] if summary_mode else detail_keys[titles.index(t)]
+            except Exception:
+                col_key = None
+
+            # determine arrow indicator
+            arrow = ''
+            if col_key and self.sort_column == col_key:
+                arrow = ' ▼' if self.sort_reverse else ' ▲'
+
+            btn = Button(text=f"[b]{t}{arrow}[/b]", markup=True, size_hint_x=None, size_hint_y=None, height=dp(28))
+            try:
+                btn.color = TEXT_COLOR
                 if FONT_NAME:
-                    lbl.font_name = FONT_NAME
+                    btn.font_name = FONT_NAME
+                btn.background_normal = ''
+                btn.background_down = ''
+                btn.background_color = (0, 0, 0, 0)
+                # bind sorting action
+                def _on_header_press(instance, key=col_key):
+                    try:
+                        if not key:
+                            return
+                        # toggle behaviour: first click -> descending, next -> toggle
+                        if self.sort_column == key:
+                            self.sort_reverse = not self.sort_reverse
+                        else:
+                            self.sort_column = key
+                            # default to descending (high->low)
+                            self.sort_reverse = True
+                        self.refresh()
+                    except Exception:
+                        pass
+                btn.bind(on_release=_on_header_press)
             except Exception:
                 pass
-            # each header cell gets proportional width
+
+            # width for header cell
             if t == '玩家' and summary_mode:
-                lbl.width = dp(140)
+                btn.width = dp(140)
             else:
-                lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
-            self.header.add_widget(lbl)
+                btn.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
+            self.header.add_widget(btn)
 
         if summary_mode:
-            items = sorted(per.items(), key=lambda x: -x[1].get('total', 0)) if per else []
+            items = list(per.items()) if per else []
+            # apply sort if requested
+            if self.sort_column:
+                key = self.sort_column
+                if key == 'name':
+                    items.sort(key=lambda x: str(x[0]).lower(), reverse=self.sort_reverse)
+                else:
+                    items.sort(key=lambda x: x[1].get(key, 0), reverse=self.sort_reverse)
+            else:
+                items = sorted(items, key=lambda x: -x[1].get('total', 0)) if items else []
             for name, stats in items:
                 # each row is a horizontal GridLayout so columns align with header
                 row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(32), size_hint_x=None)
                 row.width = content_width
                 # name column
-                lbl_name = Label(text=str(name), halign='left', size_hint_x=None)
+                lbl_name = Label(text=str(name), halign='left', valign='top', size_hint_x=None, size_hint_y=None, height=dp(32))
                 try:
                     lbl_name.color = TEXT_COLOR
                     if FONT_NAME:
@@ -304,11 +385,12 @@ class StatisticsScreen(Screen):
 
                 nums = [stats.get('total',0), stats.get('base',0), stats.get('base_avg',0), stats.get('avg_rank',0), stats.get('dun_count',0), stats.get('first_count',0), stats.get('last_count',0), stats.get('games_played',0)]
                 for n in nums:
-                    lbl = Label(text=self._fmt(n,2 if isinstance(n,float) else 0), size_hint_x=None)
+                    lbl = Label(text=self._fmt(n,2 if isinstance(n,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(32))
                     try:
                         lbl.color = TEXT_COLOR
                         if FONT_NAME:
                             lbl.font_name = FONT_NAME
+                        lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
                     except Exception:
                         pass
                     lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
@@ -320,17 +402,24 @@ class StatisticsScreen(Screen):
                 details = stats_helpers.rounds_flat_list(self.data)
             else:
                 details = stats_helpers.rounds_flat_list(self.data, player_filter=[spinner_text])
+            # apply sort for detail view if requested
+            if self.sort_column:
+                try:
+                    details.sort(key=lambda d: d.get(self.sort_column, 0), reverse=self.sort_reverse)
+                except Exception:
+                    pass
             # for detail view, use content_cols as len(titles)
             for d in details:
                 row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(28), size_hint_x=None)
                 row.width = content_width
                 vals = [d.get('round_index'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
                 for v in vals:
-                    lbl = Label(text=self._fmt(v,2 if isinstance(v,float) else 0), size_hint_x=None)
+                    lbl = Label(text=self._fmt(v,2 if isinstance(v,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(28))
                     try:
                         lbl.color = TEXT_COLOR
                         if FONT_NAME:
                             lbl.font_name = FONT_NAME
+                        lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
                     except Exception:
                         pass
                     lbl.width = int(content_width / content_cols) if content_cols else content_width
