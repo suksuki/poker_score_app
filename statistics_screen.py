@@ -595,18 +595,38 @@ class StatisticsScreen(Screen):
                     ranks[orig_idx] = rank_pos
 
                 results = []
+                totals_map = {}
+                ranks_map = {}
+                basics_map = {}
+                duns_map = {}
                 for p_idx, pname in enumerate(players):
+                    sc = int(scores[p_idx])
+                    ba = int(bases[p_idx])
+                    du = int(duns[p_idx])
+                    rk = int(ranks[p_idx])
                     results.append({
                         'player': pname,
-                        'score': int(scores[p_idx]),
-                        'base': int(bases[p_idx]),
-                        'rank': int(ranks[p_idx]),
-                        'dun': int(duns[p_idx]),
+                        'score': sc,
+                        'base': ba,
+                        'rank': rk,
+                        'dun': du,
                     })
+                    totals_map[pname] = sc
+                    ranks_map[pname] = rk
+                    # store basic as delta from 100 to match ScoreScreen's expectation
+                    basics_map[pname] = ba - 100
+                    duns_map[pname] = du
 
                 rnd = {
                     'date': dt.isoformat(),
-                    'results': results
+                    'results': results,
+                    # legacy fields used by ScoreScreen
+                    'total': totals_map,
+                    'ranks': ranks_map,
+                    'breakdown': {
+                        'basic': basics_map,
+                        'duns_raw': duns_map,
+                    }
                 }
                 self.data['rounds'].append(rnd)
 
