@@ -19,33 +19,37 @@ class SetupScreen(Screen):
     def __init__(self, **kw):
         super().__init__(**kw)
         scroll = ScrollView(size_hint=(1,1))
-        content = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(8), size_hint_y=None)
+        content = BoxLayout(orientation='vertical', padding=dp(16), spacing=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter('height'))
         scroll.add_widget(content)
         self.add_widget(scroll)
-        content.add_widget(H(text='玩家设置', size_hint_y=None, height=dp(40)))
+        content.add_widget(H(text='玩家设置', size_hint_y=None, height=dp(48)))
         self.count = 4
         self._min_players = 1
         self._max_players = 16
-        # compact horizontal row: left-aligned player count controls, right-aligned theme toggle
+        # compact horizontal row: centered player count controls, theme toggle on right
         combined = BoxLayout(size_hint_y=None, height=ROW_HEIGHT, spacing=dp(6), padding=(dp(6), 0))
-        left = BoxLayout(spacing=dp(4), size_hint_x=0.6)
+        left = BoxLayout(spacing=dp(4))
         # make label fixed width so controls align predictably on small screens
         left.add_widget(L(text='玩家数量', size_hint_x=None, width=dp(84)))
-        # control box with fixed compact width (dec, count, inc) left-aligned
-        ctrl = BoxLayout(size_hint_x=None, width=dp(140), spacing=dp(4))
+        # control box centered (dec, count, inc)
+        ctrl = BoxLayout(size_hint=(None, None), width=dp(160), height=dp(40), spacing=dp(6))
         btn_dec = IconButton('➖', width=dp(36), height=dp(36))
         btn_inc = IconButton('➕', width=dp(36), height=dp(36))
         btn_dec.bind(on_press=lambda *_: self._change_count(-1))
         btn_inc.bind(on_press=lambda *_: self._change_count(1))
-        self.count_label = L(text=str(self.count), size_hint=(None, None), width=dp(48), height=dp(36), halign='center', valign='middle')
+        # count label wrapped in a small box for consistent sizing
+        from kivy.uix.boxlayout import BoxLayout as _Box
+        count_box = _Box(size_hint=(None, None), width=dp(56), height=dp(36))
+        self.count_label = L(text=str(self.count), size_hint=(1, 1), halign='center', valign='middle')
         self.count_label.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+        count_box.add_widget(self.count_label)
         ctrl.add_widget(btn_dec)
-        ctrl.add_widget(self.count_label)
+        ctrl.add_widget(count_box)
         ctrl.add_widget(btn_inc)
         left.add_widget(ctrl)
         # right side: theme label + button, right aligned and compact
-        right = BoxLayout(spacing=dp(4), size_hint_x=0.4)
+        right = BoxLayout(spacing=dp(4), size_hint_x=None, width=dp(140))
         right.add_widget(L(text='主题', size_hint_x=None, width=dp(50)))
         current_text = '亮色' if CURRENT_THEME == 'light' else '暗色'
         self.theme_btn = IconTextButton(text=current_text, icon='wrench', size_hint_x=None)
@@ -83,7 +87,7 @@ class SetupScreen(Screen):
             combined.add_widget(Widget(size_hint_x=None, width=dp(6)))
             combined.add_widget(right)
         content.add_widget(combined)
-        self.names_area = BoxLayout(orientation='vertical', spacing=dp(6), size_hint_y=None)
+        self.names_area = BoxLayout(orientation='vertical', spacing=dp(8), size_hint_y=None)
         self.names_area.bind(minimum_height=self.names_area.setter('height'))
         content.add_widget(self.names_area)
         btn_row = BoxLayout(size_hint_y=None, height=ROW_HEIGHT, spacing=dp(6))
@@ -98,7 +102,7 @@ class SetupScreen(Screen):
             btn_reset.width = dp(140)
         except Exception:
             pass
-        btn_row.add_widget(btn_reset)
+
         start_btn = IconTextButton(text='开始游戏', icon='play')
         try:
             start_btn.bind(on_press=self.start_and_input)
@@ -106,9 +110,20 @@ class SetupScreen(Screen):
             pass
         try:
             start_btn.size_hint_x = None
-            start_btn.width = dp(140)
+            start_btn.width = dp(160)
+            # emphasize primary action visually
+            try:
+                if hasattr(start_btn, '_bg_color_instr') and start_btn._bg_color_instr is not None:
+                    start_btn._bg_color_instr.rgba = ACCENT
+            except Exception:
+                pass
         except Exception:
             pass
+
+        btn_row.add_widget(btn_reset)
+        # spacer so reset is left and start is right-aligned
+        from kivy.uix.widget import Widget
+        btn_row.add_widget(Widget())
         btn_row.add_widget(start_btn)
         content.add_widget(btn_row)
         self.refresh_loaded()
@@ -264,6 +279,7 @@ class SetupScreen(Screen):
             old = []
         self.names_area.clear_widgets()
         n = max(self._min_players, min(self._max_players, int(getattr(self, 'count', 4))))
+        suits = ['♠', '♥', '♦', '♣']
         for i in range(n):
             pre = None
             if prefill and i < len(prefill):
@@ -272,8 +288,22 @@ class SetupScreen(Screen):
                 pre = old[i]
             ti = TI(text=(pre if pre is not None else f"玩家{i+1}"))
             ti.size_hint_y = None
-            ti.height = dp(40)
-            self.names_area.add_widget(ti)
+            ti.height = dp(48)
+            # wrap with a horizontal row showing a suit icon and the input
+            from kivy.uix.boxlayout import BoxLayout as _Box
+            row = _Box(orientation='horizontal', size_hint_y=None, height=dp(48), spacing=dp(8))
+            suit_lbl = L(text=suits[i % len(suits)], size_hint=(None, None), width=dp(28), halign='center', valign='middle')
+            try:
+                # color hearts/diamonds red
+                if suits[i % len(suits)] in ('♥', '♦'):
+                    suit_lbl.color = (0.8, 0.15, 0.15, 1)
+            except Exception:
+                pass
+            # give the TI a flex width
+            ti.size_hint_x = 1
+            row.add_widget(suit_lbl)
+            row.add_widget(ti)
+            self.names_area.add_widget(row)
 
         # debug and handle case where names_area isn't attached to widget tree yet
         try:
