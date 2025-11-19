@@ -594,18 +594,26 @@ class StatisticsScreen(Screen):
                     row.width = content_width
                     vals = [d.get('date'), d.get('round_index'), d.get('player'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
                     for col_i, v in enumerate(vals):
-                        # date column: show short yyyy-mm-dd when possible
+                        # date column: show short yyyy-mm-dd HH:MM when possible
                         if col_i == 0:
                             if v is None:
                                 text = ''
                             else:
                                 try:
                                     if isinstance(v, str) and 'T' in v:
-                                        text = v.split('T')[0]
+                                        parts = v.split('T')
+                                        date_part = parts[0]
+                                        time_part = parts[1] if len(parts) > 1 else ''
+                                        time_short = ':'.join((time_part.split(':')[:2]))
+                                        text = f"{date_part} {time_short}"
                                     elif isinstance(v, str) and ' ' in v:
-                                        text = v.split(' ')[0]
+                                        parts = v.split(' ')
+                                        date_part = parts[0]
+                                        time_part = parts[1] if len(parts) > 1 else ''
+                                        time_short = ':'.join((time_part.split(':')[:2]))
+                                        text = f"{date_part} {time_short}"
                                     elif hasattr(v, 'strftime'):
-                                        text = v.strftime('%Y-%m-%d')
+                                        text = v.strftime('%Y-%m-%d %H:%M')
                                     else:
                                         text = str(v)
                                 except Exception:
@@ -685,12 +693,36 @@ class StatisticsScreen(Screen):
                     except Exception:
                         pass
                 import csv
-                headers = ['round_index', 'player', 'score', 'base', 'rank', 'dun']
+                headers = ['date', 'round_index', 'player', 'score', 'base', 'rank', 'dun']
                 with open(path, 'w', newline='', encoding='utf-8') as f:
                     w = csv.writer(f)
                     w.writerow(headers)
                     for r in details:
+                        # format date to short form (YYYY-MM-DD HH:MM) when possible
+                        d_raw = r.get('date')
+                        try:
+                            if d_raw is None:
+                                d_text = ''
+                            elif isinstance(d_raw, str) and 'T' in d_raw:
+                                parts = d_raw.split('T')
+                                date_part = parts[0]
+                                time_part = parts[1] if len(parts) > 1 else ''
+                                time_short = ':'.join((time_part.split(':')[:2]))
+                                d_text = f"{date_part} {time_short}"
+                            elif isinstance(d_raw, str) and ' ' in d_raw:
+                                parts = d_raw.split(' ')
+                                date_part = parts[0]
+                                time_part = parts[1] if len(parts) > 1 else ''
+                                time_short = ':'.join((time_part.split(':')[:2]))
+                                d_text = f"{date_part} {time_short}"
+                            elif hasattr(d_raw, 'strftime'):
+                                d_text = d_raw.strftime('%Y-%m-%d %H:%M')
+                            else:
+                                d_text = str(d_raw)
+                        except Exception:
+                            d_text = str(d_raw)
                         w.writerow([
+                            d_text,
                             r.get('round_index'),
                             r.get('player'),
                             r.get('score'),
@@ -847,7 +879,7 @@ class StatisticsScreen(Screen):
                     safe_save_json(os.path.join(os.getcwd(), 'score_data_export.json'), self.data)
                 except Exception:
                     pass
-            print(f'Generated {n} test rounds for players: {players}')
+            # generated test data (quiet): do not print noisy debug lines
             # refresh score screen if present so the记分 page shows generated rounds
             try:
                 from kivy.app import App as _App

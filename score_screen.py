@@ -63,11 +63,9 @@ class ScoreScreen(Screen):
 
         def _add_chunk(dt):
             try:
-                print(f"[score_screen] _add_chunk tick: i={idx_state['i']} total_entries={total_entries}")
                 i = idx_state['i']
                 end = min(i + chunk_size, total_entries)
                 for j in range(i, end):
-                    print(f"[score_screen] adding round index in chunk: j={j}")
                     i_round, rd = round_entries[j]
                     this_round_widgets = []
                     totals = rd.get('total', {})
@@ -124,7 +122,6 @@ class ScoreScreen(Screen):
                 if end >= total_entries:
                     # finished: add totals row and cleanup
                     try:
-                        print("[score_screen] chunk finished, adding totals")
                         if rounds:
                             total_bg = TOTAL_BG
                             self.board_box.add_widget(cell_bg("合计", first_w, ROW_HEIGHT, total_bg))
