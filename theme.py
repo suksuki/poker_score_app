@@ -13,8 +13,19 @@ ROW_LIGHT = (0.99, 0.99, 1.00, 1)
 TOTAL_BG = HEADER_BG
 BORDER_COLOR = (0, 0, 0, 0.06)
 BTN_BG = (0, 0, 0, 0.06)
-ACCENT = (0.00, 0.48, 1.00, 1)
+# ACCENT kept neutral gray per user preference (no bright blue)
+ACCENT = (0.20, 0.20, 0.22, 1)
 TEXT_COLOR = (0.12, 0.12, 0.13, 1)
+# Dropdown / Spinner palette
+DROPDOWN_BG = (0.44, 0.44, 0.46, 1)
+DROPDOWN_OPTION_BG = (0.54, 0.54, 0.56, 1)
+DROPDOWN_OPTION_PRESSED = (0.40, 0.40, 0.42, 1)
+DROPDOWN_SEPARATOR_COLOR = (0.36, 0.36, 0.38, 1)
+# card-specific styling (for poker-like visuals)
+CARD_BG = (1.0, 1.0, 1.0, 1)
+CARD_BORDER = (0.9, 0.9, 0.92, 1)
+CARD_SHADOW = (0, 0, 0, 0.06)
+SUIT_COLORS = {'♠': (0.12, 0.12, 0.13, 1), '♣': (0.12, 0.12, 0.13, 1), '♥': (0.12, 0.12, 0.13, 1), '♦': (0.12, 0.12, 0.13, 1)}
 SMALL_FONT = sp(12)
 INPUT_FONT = sp(12)
 BTN_HEIGHT = dp(38)
@@ -31,6 +42,10 @@ THEMES = {
         'BTN_BG': BTN_BG,
         'ACCENT': ACCENT,
         'TEXT_COLOR': TEXT_COLOR,
+        'CARD_BG': CARD_BG,
+        'CARD_BORDER': CARD_BORDER,
+        'CARD_SHADOW': CARD_SHADOW,
+        'SUIT_COLORS': SUIT_COLORS,
     },
     'dark': {
         'COLOR_BG': (0.03, 0.03, 0.04, 1),
@@ -40,8 +55,16 @@ THEMES = {
         'ROW_LIGHT': (0.09, 0.09, 0.10, 1),
         'BORDER_COLOR': (0, 0, 0, 0.35),
         'BTN_BG': (0, 0, 0, 0.12),
-        'ACCENT': (0.10, 0.6, 0.95, 1),
+        'ACCENT': ACCENT,
         'TEXT_COLOR': (1, 1, 1, 1),
+        'CARD_BG': (0.06, 0.06, 0.07, 1),
+        'CARD_BORDER': (0.08, 0.08, 0.09, 1),
+        'CARD_SHADOW': (0, 0, 0, 0.3),
+        'SUIT_COLORS': SUIT_COLORS,
+        'DROPDOWN_BG': DROPDOWN_BG,
+        'DROPDOWN_OPTION_BG': DROPDOWN_OPTION_BG,
+        'DROPDOWN_OPTION_PRESSED': DROPDOWN_OPTION_PRESSED,
+        'DROPDOWN_SEPARATOR_COLOR': DROPDOWN_SEPARATOR_COLOR,
     }
 }
 
@@ -62,6 +85,24 @@ def apply_theme(name: str):
     ACCENT = theme['ACCENT']
     TEXT_COLOR = theme['TEXT_COLOR']
     TOTAL_BG = HEADER_BG
+    # dropdown related
+    try:
+        global DROPDOWN_BG, DROPDOWN_OPTION_BG, DROPDOWN_OPTION_PRESSED, DROPDOWN_SEPARATOR_COLOR
+        DROPDOWN_BG = theme.get('DROPDOWN_BG', DROPDOWN_BG)
+        DROPDOWN_OPTION_BG = theme.get('DROPDOWN_OPTION_BG', DROPDOWN_OPTION_BG)
+        DROPDOWN_OPTION_PRESSED = theme.get('DROPDOWN_OPTION_PRESSED', DROPDOWN_OPTION_PRESSED)
+        DROPDOWN_SEPARATOR_COLOR = theme.get('DROPDOWN_SEPARATOR_COLOR', DROPDOWN_SEPARATOR_COLOR)
+    except Exception:
+        pass
+    # card-specific values (optional)
+    try:
+        global CARD_BG, CARD_BORDER, CARD_SHADOW, SUIT_COLORS
+        CARD_BG = theme.get('CARD_BG', CARD_BG)
+        CARD_BORDER = theme.get('CARD_BORDER', CARD_BORDER)
+        CARD_SHADOW = theme.get('CARD_SHADOW', CARD_SHADOW)
+        SUIT_COLORS = theme.get('SUIT_COLORS', SUIT_COLORS)
+    except Exception:
+        pass
     try:
         Window.clearcolor = COLOR_BG
     except Exception:
@@ -85,13 +126,9 @@ _candidate = os.path.join(os.path.dirname(__file__), "assets", "fonts", "NotoSan
 if os.path.exists(_candidate):
     try:
         LabelBase.register(name="AppFont", fn_regular=_candidate)
-        # Also register/override the common default 'Roboto' font so Kivy widgets
-        # that rely on the default font will render Chinese glyphs without
-        # needing to set `font_name` everywhere.
-        try:
-            LabelBase.register(name="Roboto", fn_regular=_candidate)
-        except Exception:
-            pass
+        # Do not override the built-in 'Roboto' registration — on Windows
+        # overriding the default font can interfere with IME/composition input
+        # behavior. Apps can still opt into `FONT_NAME='AppFont'` for labels.
         FONT_NAME = "AppFont"
     except Exception:
         FONT_NAME = _candidate
@@ -104,6 +141,23 @@ _fa_candidates = [
     '/usr/share/fonts/truetype/fontawesome-webfont.ttf',
 ]
 for _fp in _fa_candidates:
+    try:
+        if os.path.exists(_fp):
+            try:
+                LabelBase.register(name='FA', fn_regular=_fp)
+                FA_FONT = 'FA'
+                break
+            except Exception:
+                FA_FONT = None
+    except Exception:
+        pass
+# Also look for bundled FontAwesome in project assets (useful for APK builds)
+_local_fa_candidates = [
+    os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'fontawesome-webfont.ttf'),
+    os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'FontAwesome.otf'),
+    os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'fa-solid-900.ttf'),
+]
+for _fp in _local_fa_candidates:
     try:
         if os.path.exists(_fp):
             try:
@@ -139,11 +193,11 @@ def unregister_theme_listener(cb):
 def _inject_global_widget_defaults():
     try:
         from kivy.uix.label import Label
-        from kivy.uix.textinput import TextInput
-
-        # Limit injection to Label and TextInput only to avoid overwriting
-        # explicit icon fonts set on Buttons/Spinners (e.g. FontAwesome).
-        classes = [Label, TextInput]
+        # Avoid injecting into TextInput: forcing a font on TextInput can
+        # interfere with system IME/input methods (especially for CJK input).
+        # We'll limit injection to Label only and let TextInput widgets be
+        # styled via the widgets module's theming hooks.
+        classes = [Label]
 
         for cls in classes:
             # avoid double-injection

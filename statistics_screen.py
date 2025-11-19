@@ -4,10 +4,17 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
 from kivy.uix.spinner import Spinner, SpinnerOption
+from kivy.uix.dropdown import DropDown
+from kivy.animation import Animation
+from kivy.graphics import Color, Rectangle, Ellipse
 from kivy.uix.button import Button
+from kivy.uix.togglebutton import ToggleButtonBehavior
+from kivy.properties import NumericProperty
+from kivy.uix.widget import Widget
+from kivy.uix.label import Label
 from kivy.metrics import dp, sp
 from kivy.clock import Clock
-from theme import TEXT_COLOR, FONT_NAME, ACCENT, BTN_BG
+from theme import TEXT_COLOR, FONT_NAME, ACCENT, BTN_BG, DROPDOWN_BG, DROPDOWN_OPTION_BG, DROPDOWN_OPTION_PRESSED, DROPDOWN_SEPARATOR_COLOR
 from storage import load_data, save_data, safe_save_json, safe_load_json
 import stats_helpers
 import os
@@ -21,13 +28,90 @@ class StatisticsScreen(Screen):
         self.name = kw.get('name', 'statistics')
         self.data = {}
         self.mode = 'summary'  # 'summary' or 'detail'
+        # sorting state defaults (ensure methods that call refresh can run
+        # even when on_pre_enter hasn't executed during tests)
+        self.sort_column = None
+        self.sort_reverse = False
 
         root = BoxLayout(orientation='vertical', padding=dp(8), spacing=dp(6))
 
         # Top: page buttons
         top_bar = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-        btn_summary = Button(text='汇总', size_hint_x=None, width=dp(100))
-        btn_detail = Button(text='逐局', size_hint_x=None, width=dp(100))
+
+        # custom radio-like Toggle with a small selectable dot and press animation
+        class RadioToggle(ToggleButtonBehavior, BoxLayout):
+            _dot_alpha = NumericProperty(0.0)
+            _dot_size = NumericProperty(dp(10))
+
+            def __init__(self, text='', group=None, **kwargs):
+                super().__init__(orientation='horizontal', spacing=dp(8), padding=(dp(8), dp(8)), **kwargs)
+                if group:
+                    try:
+                        self.group = group
+                    except Exception:
+                        pass
+
+                # label
+                self.lbl = Label(text=text, valign='middle', size_hint_x=1)
+                try:
+                    if FONT_NAME:
+                        self.lbl.font_name = FONT_NAME
+                    self.lbl.color = TEXT_COLOR
+                    self.lbl.font_size = sp(15)
+                except Exception:
+                    pass
+
+                # draw dot in this widget's canvas so we can position it centered vertically
+                try:
+                    with self.canvas:
+                        self._dot_color = Color(ACCENT[0], ACCENT[1], ACCENT[2], 0)
+                        self._dot_ellipse = Ellipse(pos=(self.x + dp(6), self.y + (self.height - self._dot_size)/2), size=(self._dot_size, self._dot_size))
+                    # update when layout changes
+                    self.bind(pos=self._update_dot_canvas, size=self._update_dot_canvas, _dot_size=self._update_dot_canvas, _dot_alpha=self._update_dot_alpha)
+                except Exception:
+                    pass
+
+                # add a spacer (left) and the label; spacer size accounts for dot
+                try:
+                    spacer = Widget(size_hint_x=None, width=dp(18))
+                    self.add_widget(spacer)
+                except Exception:
+                    pass
+                self.add_widget(self.lbl)
+
+            def _update_dot_canvas(self, *a):
+                try:
+                    size = (self._dot_size, self._dot_size)
+                    x = self.x + dp(6)
+                    y = self.y + (self.height - self._dot_size) / 2
+                    try:
+                        self._dot_ellipse.pos = (x, y)
+                        self._dot_ellipse.size = size
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+            def _update_dot_alpha(self, *a):
+                try:
+                    self._dot_color.a = float(self._dot_alpha)
+                except Exception:
+                    pass
+
+            def on_state(self, widget, value):
+                # animate dot alpha and size to give press feedback
+                try:
+                    if value == 'down':
+                        Animation.cancel_all(self)
+                        Animation(_dot_size=dp(12), _dot_alpha=1.0, d=0.12).start(self)
+                    else:
+                        Animation.cancel_all(self)
+                        Animation(_dot_size=dp(10), _dot_alpha=0.0, d=0.12).start(self)
+                except Exception:
+                    pass
+
+        btn_summary = RadioToggle(text='汇总', size_hint_x=None, width=dp(120), group='view_mode')
+        btn_detail = RadioToggle(text='逐局', size_hint_x=None, width=dp(120), group='view_mode')
         try:
             # layered gray primary and secondary buttons (dark gray background, white text)
             primary_gray = (0.28, 0.28, 0.30, 1)
@@ -43,59 +127,143 @@ class StatisticsScreen(Screen):
             btn_detail.color = (1, 1, 1, 1)
 
             if FONT_NAME:
-                btn_summary.font_name = FONT_NAME
-                btn_detail.font_name = FONT_NAME
+                try:
+                    btn_summary.lbl.font_name = FONT_NAME
+                    btn_detail.lbl.font_name = FONT_NAME
+                except Exception:
+                    pass
         except Exception:
             pass
-        btn_summary.bind(on_press=lambda *_: self.set_mode('summary'))
-        btn_detail.bind(on_press=lambda *_: self.set_mode('detail'))
+        # set initial state according to current mode
+        try:
+            if self.mode == 'summary':
+                btn_summary.state = 'down'
+                btn_detail.state = 'normal'
+            else:
+                btn_summary.state = 'normal'
+                btn_detail.state = 'down'
+        except Exception:
+            pass
+
+        btn_summary.bind(on_press=lambda inst, *_: self.set_mode('summary') if inst.state == 'down' else None)
+        btn_detail.bind(on_press=lambda inst, *_: self.set_mode('detail') if inst.state == 'down' else None)
         top_bar.add_widget(btn_summary)
         top_bar.add_widget(btn_detail)
-        root.add_widget(top_bar)
 
-        # Title (kept for clarity)
-        title = Label(text='统计', size_hint_y=None, height=dp(36))
+        # Title placed to the right of toggles, centered vertically
+        title = Label(text='统计', size_hint_x=1)
         try:
             title.font_size = sp(18)
             title.color = TEXT_COLOR
+            title.valign = 'middle'
+            title.halign = 'center'
             if FONT_NAME:
                 title.font_name = FONT_NAME
+            # ensure text_size so valign works
+            def _upd_title_txt_size(*a):
+                try:
+                    title.text_size = (title.width, title.height)
+                except Exception:
+                    pass
+            title.bind(size=lambda *_: _upd_title_txt_size())
         except Exception:
             pass
-        root.add_widget(title)
+
+        top_bar.add_widget(title)
+        root.add_widget(top_bar)
 
         # Middle: filter and content
         middle = BoxLayout(orientation='vertical', spacing=dp(6))
         fb = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-        # create spinner with layered gray appearance matching buttons
+        # create spinner with nicer padded options and an animated dropdown
         self.player_spinner = Spinner(text='全部', values=['全部'], size_hint_x=0.7)
         try:
+            # color palette for spinner and options (from theme)
+            mid_gray = DROPDOWN_BG
+            opt_light = DROPDOWN_OPTION_BG
+            opt_pressed = DROPDOWN_OPTION_PRESSED
 
-            # lighter, layered grays for spinner and options
-            dark_gray = (0.30, 0.30, 0.32, 1)
-            mid_gray = (0.44, 0.44, 0.46, 1)  # spinner base (lighter)
-            opt_light = (0.54, 0.54, 0.56, 1)  # option normal (even lighter)
-            opt_pressed = (0.40, 0.40, 0.42, 1)  # option when pressed
-
-            # spinner base: mid gray background, white text
+            # spinner base styling
             self.player_spinner.background_normal = ''
             self.player_spinner.background_down = ''
             self.player_spinner.background_color = mid_gray
             self.player_spinner.color = (1, 1, 1, 1)
+            try:
+                self.player_spinner.padding = (dp(12), dp(8))
+            except Exception:
+                pass
 
+            # separator (1px) between dropdown options
+            class Separator(BoxLayout):
+                def __init__(self, color=DROPDOWN_SEPARATOR_COLOR, **kwargs):
+                    super().__init__(**kwargs)
+                    self.size_hint_y = None
+                    self.height = dp(1)
+                    try:
+                        with self.canvas:
+                            Color(*color)
+                            self._rect = Rectangle(pos=self.pos, size=self.size)
+                        self.bind(pos=lambda *_: setattr(self._rect, 'pos', self.pos))
+                        self.bind(size=lambda *_: setattr(self._rect, 'size', self.size))
+                    except Exception:
+                        pass
+
+            # animated dropdown class: fade in when opened and insert separators
+            class AnimatedDropDown(DropDown):
+                def open(self, widget):
+                    try:
+                        # start invisible then let super create and position
+                        self.opacity = 0
+                    except Exception:
+                        pass
+                    try:
+                        super().open(widget)
+                        try:
+                            Animation.cancel_all(self)
+                            Animation(opacity=1.0, d=0.16).start(self)
+                        except Exception:
+                            pass
+                    except Exception:
+                        try:
+                            super().open(widget)
+                        except Exception:
+                            pass
+
+                def add_widget(self, widget, *a, **kw):
+                    # insert a 1px separator between SpinnerOption items
+                    try:
+                        from kivy.uix.spinner import SpinnerOption as _SO
+                        if isinstance(widget, _SO) and len(self.children) > 0:
+                            try:
+                                super().add_widget(Separator())
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    try:
+                        super().add_widget(widget, *a, **kw)
+                    except Exception:
+                        # fallback without separator
+                        try:
+                            super().add_widget(widget)
+                        except Exception:
+                            pass
+
+            # nicer options with padding and press feedback
             class FontSpinnerOption(SpinnerOption):
                 def __init__(self, **kwargs):
-                    # SpinnerOption is a Button; apply layered gray style for option rows
                     kwargs.setdefault('background_normal', '')
                     kwargs.setdefault('background_down', '')
+                    # padding and size to make options airy
+                    kwargs.setdefault('padding', (dp(12), dp(10)))
                     super().__init__(**kwargs)
                     try:
-                        # option backgrounds: use lighter gray and white text
                         self.background_color = opt_light
                         self.color = (1, 1, 1, 1)
                         if FONT_NAME:
                             self.font_name = FONT_NAME
-                        # add state binding to give press feedback
+                        self.font_size = sp(14)
+                        # press feedback
                         def _on_state(inst, value):
                             try:
                                 if value == 'down':
@@ -109,8 +277,16 @@ class StatisticsScreen(Screen):
                         pass
 
             self.player_spinner.option_cls = FontSpinnerOption
+            # use AnimatedDropDown for nicer open animation
+            try:
+                self.player_spinner.dropdown_cls = AnimatedDropDown
+            except Exception:
+                pass
             if FONT_NAME:
-                self.player_spinner.font_name = FONT_NAME
+                try:
+                    self.player_spinner.font_name = FONT_NAME
+                except Exception:
+                    pass
         except Exception:
             pass
         # refresh button removed: automatically refresh when spinner value changes
@@ -893,8 +1069,14 @@ class StatisticsScreen(Screen):
                         pass
             except Exception:
                 pass
-            # also refresh statistics screen view
-            self.refresh()
+            # also refresh statistics screen view if running inside the app
+            try:
+                from kivy.app import App as _App
+                app = _App.get_running_app()
+                if app is not None:
+                    self.refresh()
+            except Exception:
+                pass
         except Exception as e:
             print('Failed to generate test data', e)
 

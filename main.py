@@ -1,3 +1,12 @@
+import sys
+# Configure Kivy keyboard mode early on Windows so IME composition works
+try:
+    if sys.platform.startswith('win'):
+        from kivy.config import Config
+        Config.set('kivy', 'keyboard_mode', 'system')
+except Exception:
+    pass
+
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.screenmanager import ScreenManager, FadeTransition

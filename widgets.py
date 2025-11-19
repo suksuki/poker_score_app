@@ -131,19 +131,46 @@ def H(text="", **kw):
     return lbl
 
 def TI(**kw):
-    if FONT_NAME:
-        kw.setdefault("font_name", FONT_NAME)
+    # Avoid forcing a font that may interfere with IME input on some systems.
+    # We'll let the system select the input font to improve IME/Chinese support.
     kw.setdefault("font_size", _T('INPUT_FONT'))
     kw.setdefault("multiline", False)
     kw.setdefault("background_normal", "")
     kw.setdefault("background_active", "")
     kw.setdefault("background_color", _T('PANEL_BG'))
     kw.setdefault("foreground_color", _T('TEXT_COLOR'))
+    # ensure this is treated as free-form text (helps IME on some platforms)
+    kw.setdefault('input_type', 'text')
+    # allow tab characters to be written if needed
+    kw.setdefault('write_tab', True)
+
     ti = TextInput(**kw)
     try:
+        # If the project registered a Chinese-capable font, apply it to the
+        # TextInput so Chinese glyphs render correctly. Use try/except to
+        # avoid platform-specific IME issues crashing the app.
+        try:
+            # On Windows, setting a custom `font_name` on TextInput can break
+            # IME composition. Prefer leaving font_name unset so the system
+            # IME works correctly. Only set `font_name` on non-Windows
+            # platforms where we've observed the custom font improves glyph rendering.
+            import sys
+            if FONT_NAME and not sys.platform.startswith('win'):
+                try:
+                    ti.font_name = FONT_NAME
+                except Exception:
+                    pass
+        except Exception:
+            pass
         ti.size_hint_y = None
         ti.height = dp(40)
         ti.padding = [dp(6), dp(8), dp(6), dp(8)]
+        # try to enable IME mode if available on the platform/backends
+        try:
+            if hasattr(ti, 'ime_mode'):
+                ti.ime_mode = 'default'
+        except Exception:
+            pass
     except Exception:
         pass
     try:
@@ -216,16 +243,33 @@ def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
     if rank == 1 or rank == 'last':
         try:
             from kivy.uix.image import Image
+            import os
             icon_w = None
             _gold = 'assets/icons/trophy_gold.png'
             _gray = 'assets/icons/trophy_gray.png'
+            # Prefer FontAwesome glyph when available
             if FA_FONT:
                 try:
                     glyph = '\uf091'
                     icon_w = Label(text=glyph, font_name=FA_FONT, font_size=sp(14), size_hint=(None,1), width=dp(20))
                     icon_w.color = (1.0, 0.84, 0.0, 1) if rank == 1 else (0.6,0.6,0.63,1)
                 except Exception:
-                    pass
+                    icon_w = None
+            # If FontAwesome not available, try bundled PNG icons
+            if icon_w is None:
+                try:
+                    img_src = _gold if rank == 1 else _gray
+                    if os.path.exists(img_src):
+                        icon_w = Image(source=img_src, size_hint=(None,1), width=dp(20))
+                except Exception:
+                    icon_w = None
+            # final fallback: use emoji label
+            if icon_w is None:
+                try:
+                    icon_w = Label(text='🏆', font_size=sp(14), size_hint=(None,1), width=dp(20))
+                    icon_w.color = (1.0, 0.84, 0.0, 1) if rank == 1 else (0.6,0.6,0.63,1)
+                except Exception:
+                    icon_w = None
             if icon_w is not None:
                 content.add_widget(icon_w)
         except Exception:
