@@ -32,8 +32,13 @@ def load_data():
                                 ensure_backup(DATA_FILE)
                             except Exception:
                                 pass
-                            with open(DATA_FILE, "w", encoding="utf-8") as out_f:
-                                json.dump(data, out_f, ensure_ascii=False, indent=2)
+                            # use atomic save
+                            try:
+                                safe_save_json(DATA_FILE, data)
+                            except Exception:
+                                # fallback to direct write if atomic save unavailable
+                                with open(DATA_FILE, "w", encoding="utf-8") as out_f:
+                                    json.dump(data, out_f, ensure_ascii=False, indent=2)
                         except Exception:
                             # fall back to not crashing if write fails
                             pass
@@ -79,5 +84,24 @@ def safe_load_json(path):
         return {}
 
 def safe_save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    # atomic write: write to a temp file and replace the target
+    tmp = path + ".tmp"
+    try:
+        dirpath = os.path.dirname(path) or '.'
+        # ensure tmp is created in same directory
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        # replace atomically
+        os.replace(tmp, path)
+    except Exception:
+        # best-effort fallback: try writing directly
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
