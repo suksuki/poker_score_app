@@ -15,12 +15,27 @@ def load_data():
                 # ensure rounds is a list
                 if isinstance(rounds, list):
                     import datetime as _dt
+                    migrated = False
                     for r in rounds:
                         try:
                             if isinstance(r, dict) and 'date' not in r:
                                 # best-effort: add ISO timestamp for missing dates
                                 r['date'] = _dt.datetime.now().isoformat()
+                                migrated = True
                         except Exception:
+                            pass
+                    # persist migration back to disk so older data now have timestamps
+                    if migrated:
+                        try:
+                            # keep a backup before overwriting
+                            try:
+                                ensure_backup(DATA_FILE)
+                            except Exception:
+                                pass
+                            with open(DATA_FILE, "w", encoding="utf-8") as out_f:
+                                json.dump(data, out_f, ensure_ascii=False, indent=2)
+                        except Exception:
+                            # fall back to not crashing if write fails
                             pass
                 else:
                     data['rounds'] = []
