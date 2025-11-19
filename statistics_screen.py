@@ -523,8 +523,14 @@ class StatisticsScreen(Screen):
             print('Failed to export JSON', e)
 
     def generate_test_data(self, n=100):
-        """Generate n random rounds for the currently selected player (for testing).
-        Appends rounds to `self.data['rounds']`, ensures player is recorded in `players`, saves and refreshes.
+        """Generate n random rounds each containing results for all players.
+
+        For each round:
+        - base values are integers where sum(base - 100) == 0 (so bases center on 100)
+        - score is base-100 plus a small random jitter, then adjusted so scores sum to 0
+        - dun is derived from base offsets (players with lower base get slightly higher dun)
+        - rank is computed from score (1 = highest)
+        The generated rounds are appended to `self.data['rounds']`, players ensured in `self.data['players']`.
         """
         try:
             # ensure data structure
@@ -535,38 +541,72 @@ class StatisticsScreen(Screen):
             if 'players' not in self.data or not isinstance(self.data['players'], list):
                 self.data['players'] = []
 
-            spinner_text = getattr(self.player_spinner, 'text', None)
-            if spinner_text in (None, '全部'):
-                # pick first existing player or create a test player
-                players = self.data.get('players') or []
-                player = players[0] if players else 'TestPlayer'
-            else:
-                player = spinner_text
-
-            # ensure player in players list
-            if player not in self.data.get('players', []):
-                self.data.setdefault('players', []).append(player)
+            # determine players list: use existing players or create 4 default players
+            players = list(self.data.get('players') or [])
+            if not players:
+                players = [f'玩家{i+1}' for i in range(4)]
+                self.data['players'] = players[:]
 
             now = datetime.now()
+            num_players = len(players)
+
             for i in range(n):
-                # create a timestamp decreasing by 1 minute each
+                # timestamp spacing for realism
                 dt = now - timedelta(minutes=i)
-                # random values: score can be negative or positive
-                score = random.randint(-100, 400)
-                base = random.randint(0, 120)
-                rank = random.randint(1, 4)
-                dun = random.randint(0, 3)
+
+                # generate random offsets that sum to zero
+                # use normal-distributed floats, remove mean, round to ints and ensure sum zero
+                while True:
+                    samples = [random.gauss(0, 25) for _ in range(num_players)]
+                    mean = sum(samples) / num_players
+                    offsets = [int(round(s - mean)) for s in samples]
+                    if sum(offsets) == 0:
+                        break
+
+                bases = [100 + off for off in offsets]
+                # ensure non-negative bases; if negative, retry
+                if any(b < 0 for b in bases):
+                    # fallback regenerate
+                    continue
+
+                # raw scores = offset + small random jitter
+                raw_scores = [off + random.randint(-10, 10) for off in offsets]
+                total_raw = sum(raw_scores)
+                # integer mean and remainder to normalize to sum zero
+                mean_q, rem = divmod(total_raw, num_players)
+                scores = [rs - mean_q for rs in raw_scores]
+                # distribute remainder to first `rem` players (subtract 1 to remove extra)
+                for j in range(rem):
+                    scores[j] -= 1
+
+                # compute duns correlated with negative offset (players who lost more get more duns)
+                duns = []
+                for off in offsets:
+                    base_dun = max(0, int(round((-off) / 10)))
+                    noise = random.choice([0, 0, 1])
+                    duns.append(base_dun + noise)
+
+                # compute ranks (1 = highest score)
+                indexed = list(enumerate(scores))
+                # sort by score desc, tie-breaker by random to avoid deterministic ties
+                sorted_idx = sorted(indexed, key=lambda x: (-x[1], random.random()))
+                ranks = [0] * num_players
+                for rank_pos, (orig_idx, _) in enumerate(sorted_idx, start=1):
+                    ranks[orig_idx] = rank_pos
+
+                results = []
+                for p_idx, pname in enumerate(players):
+                    results.append({
+                        'player': pname,
+                        'score': int(scores[p_idx]),
+                        'base': int(bases[p_idx]),
+                        'rank': int(ranks[p_idx]),
+                        'dun': int(duns[p_idx]),
+                    })
+
                 rnd = {
                     'date': dt.isoformat(),
-                    'results': [
-                        {
-                            'player': player,
-                            'score': score,
-                            'base': base,
-                            'rank': rank,
-                            'dun': dun,
-                        }
-                    ]
+                    'results': results
                 }
                 self.data['rounds'].append(rnd)
 
@@ -578,7 +618,7 @@ class StatisticsScreen(Screen):
                     safe_save_json(os.path.join(os.getcwd(), 'score_data_export.json'), self.data)
                 except Exception:
                     pass
-            print(f'Generated {n} test rounds for player: {player}')
+            print(f'Generated {n} test rounds for players: {players}')
             self.refresh()
         except Exception as e:
             print('Failed to generate test data', e)
