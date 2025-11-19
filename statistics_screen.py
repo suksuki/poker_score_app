@@ -22,6 +22,21 @@ import random
 from datetime import datetime, timedelta
 
 
+class Separator(BoxLayout):
+    def __init__(self, color=DROPDOWN_SEPARATOR_COLOR, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint_y = None
+        self.height = dp(1)
+        try:
+            with self.canvas:
+                Color(*color)
+                self._rect = Rectangle(pos=self.pos, size=self.size)
+            self.bind(pos=lambda *_: setattr(self._rect, 'pos', self.pos))
+            self.bind(size=lambda *_: setattr(self._rect, 'size', self.size))
+        except Exception:
+            pass
+
+
 class StatisticsScreen(Screen):
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -193,20 +208,7 @@ class StatisticsScreen(Screen):
             except Exception:
                 pass
 
-            # separator (1px) between dropdown options
-            class Separator(BoxLayout):
-                def __init__(self, color=DROPDOWN_SEPARATOR_COLOR, **kwargs):
-                    super().__init__(**kwargs)
-                    self.size_hint_y = None
-                    self.height = dp(1)
-                    try:
-                        with self.canvas:
-                            Color(*color)
-                            self._rect = Rectangle(pos=self.pos, size=self.size)
-                        self.bind(pos=lambda *_: setattr(self._rect, 'pos', self.pos))
-                        self.bind(size=lambda *_: setattr(self._rect, 'size', self.size))
-                    except Exception:
-                        pass
+            # (uses module-level Separator for 1px dividers)
 
             # animated dropdown class: fade in when opened and insert separators
             class AnimatedDropDown(DropDown):
@@ -296,7 +298,7 @@ class StatisticsScreen(Screen):
         except Exception:
             pass
         # generate test data button
-        gen_btn = Button(text='生成100条测试', size_hint_x=None, width=dp(140))
+        gen_btn = Button(text='生成20条测试', size_hint_x=None, width=dp(140))
         try:
             g_gray = (0.36, 0.36, 0.38, 1)
             gen_btn.background_normal = ''
@@ -307,7 +309,7 @@ class StatisticsScreen(Screen):
                 gen_btn.font_name = FONT_NAME
         except Exception:
             pass
-        gen_btn.bind(on_press=lambda *_: self.generate_test_data(100))
+        gen_btn.bind(on_press=lambda *_: self.generate_test_data(20))
         fb.add_widget(self.player_spinner)
         fb.add_widget(gen_btn)
         middle.add_widget(fb)
@@ -626,6 +628,11 @@ class StatisticsScreen(Screen):
                             lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
                             row.add_widget(lbl)
                         self.rows_container.add_widget(row)
+                        try:
+                            # thin divider between rows
+                            self.rows_container.add_widget(Separator())
+                        except Exception:
+                            pass
                     idx_state['i'] = end
                     if end >= total_entries:
                         try:
@@ -671,6 +678,11 @@ class StatisticsScreen(Screen):
                         lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
                         row.add_widget(lbl)
                     self.rows_container.add_widget(row)
+                    try:
+                        # thin divider between rows (fallback path)
+                        self.rows_container.add_widget(Separator())
+                    except Exception:
+                        pass
         else:
             # detail view: if '全部' selected, show all rounds; otherwise filter by player
             if spinner_text in (None, '全部'):
@@ -747,6 +759,11 @@ class StatisticsScreen(Screen):
                                 lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
                             row.add_widget(lbl)
                         self.rows_container.add_widget(row)
+                        try:
+                            # thin divider between rows
+                            self.rows_container.add_widget(Separator())
+                        except Exception:
+                            pass
                     idx_state['i'] = end
                     if end >= total_entries:
                         try:
@@ -813,6 +830,11 @@ class StatisticsScreen(Screen):
                             lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
                         row.add_widget(lbl)
                     self.rows_container.add_widget(row)
+                    try:
+                        # thin divider between rows (fallback path)
+                        self.rows_container.add_widget(Separator())
+                    except Exception:
+                        pass
 
         try:
             # ensure vertical scroll starts at top
@@ -918,7 +940,7 @@ class StatisticsScreen(Screen):
         except Exception as e:
             print('Failed to export JSON', e)
 
-    def generate_test_data(self, n=100):
+    def generate_test_data(self, n=20):
         """Generate n random rounds each containing results for all players.
 
         For each round:
@@ -946,14 +968,20 @@ class StatisticsScreen(Screen):
             now = datetime.now()
             num_players = len(players)
 
-            for i in range(n):
-                # timestamp spacing for realism
-                dt = now - timedelta(minutes=i)
+            # generate exactly `n` rounds; allow retries when a generated round
+            # produces invalid (negative) bases. Cap attempts to avoid infinite loops.
+            generated = 0
+            attempts = 0
+            max_attempts = max(200, n * 10)
+            while generated < n and attempts < max_attempts:
+                attempts += 1
+                # timestamp spacing for realism (newest first)
+                dt = now - timedelta(minutes=generated)
 
                 # generate random offsets that sum to zero
-                # use normal-distributed floats, remove mean, round to ints and then
-                # deterministically adjust any rounding difference so the sum is zero.
-                samples = [random.gauss(0, 25) for _ in range(num_players)]
+                # increase variance so differences are more visible
+                # use larger stddev and wider integer jitter
+                samples = [random.gauss(0, 45) for _ in range(num_players)]
                 mean = sum(samples) / num_players
                 offsets = [int(round(s - mean)) for s in samples]
                 diff = sum(offsets)
@@ -972,8 +1000,8 @@ class StatisticsScreen(Screen):
                     # fallback regenerate
                     continue
 
-                # raw scores = offset + small random jitter
-                raw_scores = [off + random.randint(-10, 10) for off in offsets]
+                # raw scores = offset + larger random jitter
+                raw_scores = [off + random.randint(-20, 20) for off in offsets]
                 total_raw = sum(raw_scores)
                 # integer mean and remainder to normalize to sum zero
                 mean_q, rem = divmod(total_raw, num_players)

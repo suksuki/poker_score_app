@@ -37,14 +37,15 @@ class SetupScreen(Screen):
         # make label fixed width so controls align predictably on small screens
         left.add_widget(L(text='玩家数量', size_hint_x=None, width=dp(84)))
         # control box centered (dec, count, inc)
-        ctrl = BoxLayout(size_hint=(None, None), width=dp(140), height=dp(36), spacing=dp(6))
-        btn_dec = IconButton('➖', width=dp(32), height=dp(32))
-        btn_inc = IconButton('➕', width=dp(32), height=dp(32))
+        # reduce width on small screens so it doesn't overlap theme controls
+        ctrl = BoxLayout(size_hint=(None, None), width=dp(110), height=dp(36), spacing=dp(6))
+        btn_dec = IconButton('➖', width=dp(28), height=dp(28))
+        btn_inc = IconButton('➕', width=dp(28), height=dp(28))
         btn_dec.bind(on_press=lambda *_: self._change_count(-1))
         btn_inc.bind(on_press=lambda *_: self._change_count(1))
         # count label wrapped in a small box for consistent sizing
         from kivy.uix.boxlayout import BoxLayout as _Box
-        count_box = _Box(size_hint=(None, None), width=dp(50), height=dp(32))
+        count_box = _Box(size_hint=(None, None), width=dp(40), height=dp(32))
         self.count_label = L(text=str(self.count), size_hint=(1, 1), halign='center', valign='middle')
         self.count_label.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
         count_box.add_widget(self.count_label)
@@ -53,12 +54,13 @@ class SetupScreen(Screen):
         ctrl.add_widget(btn_inc)
         left.add_widget(ctrl)
         # right side: theme label + button, right aligned and compact
-        right = BoxLayout(spacing=dp(4), size_hint_x=None, width=dp(140))
-        right.add_widget(L(text='主题', size_hint_x=None, width=dp(50)))
+        # make right area narrower to avoid overlap on narrow screens
+        right = BoxLayout(spacing=dp(4), size_hint_x=None, width=dp(120))
+        right.add_widget(L(text='主题', size_hint_x=None, width=dp(44)))
         current_text = '亮色' if CURRENT_THEME == 'light' else '暗色'
         self.theme_btn = IconTextButton(text=current_text, icon='wrench', size_hint_x=None)
         try:
-            self.theme_btn.width = dp(86)
+            self.theme_btn.width = dp(72)
         except Exception:
             pass
         def _on_theme_toggle(*_):
