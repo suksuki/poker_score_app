@@ -2,6 +2,46 @@ name: CI
 
 on:
   push:
+    branches: [ main, copilot/proud-monkey ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install system deps (Xvfb for headless GUI libs)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Create venv & install deps
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+
+      - name: Run tests under Xvfb
+        run: |
+          . .venv/bin/activate
+          xvfb-run -s "-screen 0 1280x1024x24" pytest -q
+
+      - name: Run regression script (non-failing)
+        run: |
+          . .venv/bin/activate
+          xvfb-run -s "-screen 0 1280x1024x24" python tests/run_regression.py || true
+name: CI
+
+on:
+  push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
