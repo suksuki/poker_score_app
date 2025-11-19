@@ -113,19 +113,12 @@ class StatisticsScreen(Screen):
                 self.player_spinner.font_name = FONT_NAME
         except Exception:
             pass
-        refresh_btn = Button(text='刷新', size_hint_x=0.3)
+        # refresh button removed: automatically refresh when spinner value changes
         try:
-            # refresh as mid-gray with white text for contrast
-            refresh_gray = (0.42, 0.42, 0.44, 1)
-            refresh_btn.background_normal = ''
-            refresh_btn.background_down = ''
-            refresh_btn.background_color = refresh_gray
-            refresh_btn.color = (1, 1, 1, 1)
-            if FONT_NAME:
-                refresh_btn.font_name = FONT_NAME
+            # bind spinner selection change to refresh automatically
+            self.player_spinner.bind(text=lambda inst, val: self.refresh())
         except Exception:
             pass
-        refresh_btn.bind(on_press=lambda *_: self.refresh())
         # generate test data button
         gen_btn = Button(text='生成100条测试', size_hint_x=None, width=dp(140))
         try:
@@ -140,7 +133,6 @@ class StatisticsScreen(Screen):
             pass
         gen_btn.bind(on_press=lambda *_: self.generate_test_data(100))
         fb.add_widget(self.player_spinner)
-        fb.add_widget(refresh_btn)
         fb.add_widget(gen_btn)
         middle.add_widget(fb)
 
@@ -160,8 +152,11 @@ class StatisticsScreen(Screen):
         self.header = GridLayout(cols=9, size_hint_y=None, height=dp(28), size_hint_x=None)
         self.hv_child.add_widget(self.header)
 
-        # rows container: vertical BoxLayout that grows in height
-        self.rows_container = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(4))
+        # rows container: use a GridLayout (single column) so we can bind minimum_height
+        # to its height and let it grow as rows are added. BoxLayout does not provide
+        # a reliable minimum_height property for this use case on all Kivy versions.
+        self.rows_container = GridLayout(cols=1, size_hint_y=None, spacing=dp(4))
+        # bind minimum_height (GridLayout) to the actual height so ScrollView can size
         self.rows_container.bind(minimum_height=self.rows_container.setter('height'))
         self.hv_child.add_widget(self.rows_container)
 
@@ -176,7 +171,17 @@ class StatisticsScreen(Screen):
                         h += self.header.height
                     if getattr(self, 'rows_container', None) is not None:
                         h += self.rows_container.height
-                    # ensure at least visible area
+                    # ensure rows_container fills remaining visible area so rows start
+                    # directly under header and we don't get large empty gaps.
+                    try:
+                        if getattr(self, 'header', None) is not None and getattr(self, 'rows_container', None) is not None:
+                            avail = int(max(self.hv.height - self.header.height, 0))
+                            # only increase rows_container height when available space is larger
+                            if self.rows_container.height < avail:
+                                self.rows_container.height = avail
+                    except Exception:
+                        pass
+                    # ensure hv_child is at least the visible area
                     self.hv_child.height = max(h, self.hv.height)
                 except Exception:
                     pass
@@ -230,6 +235,9 @@ class StatisticsScreen(Screen):
 
         self.add_widget(root)
 
+    # unified chunk size for incremental rendering
+    CHUNK_SIZE = 20
+
     def on_pre_enter(self):
         try:
             self.data = load_data() or {}
@@ -259,6 +267,8 @@ class StatisticsScreen(Screen):
             return str(v)
 
     def refresh(self):
+        import time
+        start = time.perf_counter()
         try:
             self.data = load_data() or {}
         except Exception:
@@ -297,10 +307,21 @@ class StatisticsScreen(Screen):
         except Exception:
             pass
 
+        # cancel any previous chunked render in progress
+        try:
+            if getattr(self, '_chunk_ev', None) is not None:
+                try:
+                    self._chunk_ev.cancel()
+                except Exception:
+                    pass
+                self._chunk_ev = None
+        except Exception:
+            pass
+
         if summary_mode:
             titles = ['玩家', '总分', '基础', '基础均', '平均名次', '顿数', '头名', '末名', '场次']
         else:
-            titles = ['场次', '得分', '基础', '名次', '顿数']
+            titles = ['场次', '玩家', '得分', '基础', '名次', '顿数']
         # compute content width based on columns so smaller screens can scroll
         def compute_width_for_columns(n_cols):
             name_col = dp(140)
@@ -326,7 +347,7 @@ class StatisticsScreen(Screen):
             pass
         # build header as clickable buttons to allow sorting
         summary_keys = ['name', 'total', 'base', 'base_avg', 'avg_rank', 'dun_count', 'first_count', 'last_count', 'games_played']
-        detail_keys = ['round_index', 'score', 'base', 'rank', 'dun']
+        detail_keys = ['round_index', 'player', 'score', 'base', 'rank', 'dun']
         for t in titles:
             # map display title to column key
             try:
@@ -371,8 +392,8 @@ class StatisticsScreen(Screen):
             except Exception:
                 pass
 
-            # width for header cell
-            if t == '玩家' and summary_mode:
+            # width for header cell: reserve wider column for player name in both modes
+            if t == '玩家':
                 btn.width = dp(140)
             else:
                 btn.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
@@ -389,34 +410,90 @@ class StatisticsScreen(Screen):
                     items.sort(key=lambda x: x[1].get(key, 0), reverse=self.sort_reverse)
             else:
                 items = sorted(items, key=lambda x: -x[1].get('total', 0)) if items else []
-            for name, stats in items:
-                # each row is a horizontal GridLayout so columns align with header
-                row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(32), size_hint_x=None)
-                row.width = content_width
-                # name column
-                lbl_name = Label(text=str(name), halign='left', valign='top', size_hint_x=None, size_hint_y=None, height=dp(32))
+
+            # prepare data entries (do not create widgets for all rows at once)
+            summary_entries = [(name, stats) for name, stats in items]
+
+            # chunked renderer: create and add up to `chunk_size` rows per frame
+            chunk_size = getattr(self, 'CHUNK_SIZE', 20)
+            total_entries = len(summary_entries)
+            idx_state = {'i': 0}
+
+            def _add_summary_chunk(dt):
                 try:
-                    lbl_name.color = TEXT_COLOR
-                    if FONT_NAME:
-                        lbl_name.font_name = FONT_NAME
+                    i = idx_state['i']
+                    end = min(i + chunk_size, total_entries)
+                    for j in range(i, end):
+                        name, stats = summary_entries[j]
+                        row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(32), size_hint_x=None)
+                        row.width = content_width
+                        lbl_name = Label(text=str(name), halign='left', valign='top', size_hint_x=None, size_hint_y=None, height=dp(32))
+                        try:
+                            lbl_name.color = TEXT_COLOR
+                            if FONT_NAME:
+                                lbl_name.font_name = FONT_NAME
+                        except Exception:
+                            pass
+                        lbl_name.width = dp(140)
+                        row.add_widget(lbl_name)
+                        nums = [stats.get('total',0), stats.get('base',0), stats.get('base_avg',0), stats.get('avg_rank',0), stats.get('dun_count',0), stats.get('first_count',0), stats.get('last_count',0), stats.get('games_played',0)]
+                        for n in nums:
+                            lbl = Label(text=self._fmt(n,2 if isinstance(n,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(32))
+                            try:
+                                lbl.color = TEXT_COLOR
+                                if FONT_NAME:
+                                    lbl.font_name = FONT_NAME
+                                lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                            except Exception:
+                                pass
+                            lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
+                            row.add_widget(lbl)
+                        self.rows_container.add_widget(row)
+                    idx_state['i'] = end
+                    if end >= total_entries:
+                        try:
+                            if getattr(self, '_chunk_ev', None) is not None:
+                                try:
+                                    self._chunk_ev.cancel()
+                                except Exception:
+                                    pass
+                                self._chunk_ev = None
+                        except Exception:
+                            pass
+                        return
                 except Exception:
                     pass
-                lbl_name.width = dp(140)
-                row.add_widget(lbl_name)
 
-                nums = [stats.get('total',0), stats.get('base',0), stats.get('base_avg',0), stats.get('avg_rank',0), stats.get('dun_count',0), stats.get('first_count',0), stats.get('last_count',0), stats.get('games_played',0)]
-                for n in nums:
-                    lbl = Label(text=self._fmt(n,2 if isinstance(n,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(32))
+            # start chunked rendering (schedule at ~60FPS)
+            try:
+                self._chunk_ev = Clock.schedule_interval(_add_summary_chunk, 1.0 / 60.0)
+            except Exception:
+                # fallback: render all at once
+                for name, stats in summary_entries:
+                    row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(32), size_hint_x=None)
+                    row.width = content_width
+                    lbl_name = Label(text=str(name), halign='left', valign='top', size_hint_x=None, size_hint_y=None, height=dp(32))
                     try:
-                        lbl.color = TEXT_COLOR
+                        lbl_name.color = TEXT_COLOR
                         if FONT_NAME:
-                            lbl.font_name = FONT_NAME
-                        lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                            lbl_name.font_name = FONT_NAME
                     except Exception:
                         pass
-                    lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
-                    row.add_widget(lbl)
-                self.rows_container.add_widget(row)
+                    lbl_name.width = dp(140)
+                    row.add_widget(lbl_name)
+                    nums = [stats.get('total',0), stats.get('base',0), stats.get('base_avg',0), stats.get('avg_rank',0), stats.get('dun_count',0), stats.get('first_count',0), stats.get('last_count',0), stats.get('games_played',0)]
+                    for n in nums:
+                        lbl = Label(text=self._fmt(n,2 if isinstance(n,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(32))
+                        try:
+                            lbl.color = TEXT_COLOR
+                            if FONT_NAME:
+                                lbl.font_name = FONT_NAME
+                            lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                        except Exception:
+                            pass
+                        lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
+                        row.add_widget(lbl)
+                    self.rows_container.add_widget(row)
         else:
             # detail view: if '全部' selected, show all rounds; otherwise filter by player
             if spinner_text in (None, '全部'):
@@ -426,30 +503,97 @@ class StatisticsScreen(Screen):
             # apply sort for detail view if requested
             if self.sort_column:
                 try:
-                    details.sort(key=lambda d: d.get(self.sort_column, 0), reverse=self.sort_reverse)
+                    if self.sort_column in ('player', 'name'):
+                        details.sort(key=lambda d: str(d.get(self.sort_column, '')).lower(), reverse=self.sort_reverse)
+                    else:
+                        details.sort(key=lambda d: d.get(self.sort_column, 0), reverse=self.sort_reverse)
                 except Exception:
                     pass
-            # for detail view, use content_cols as len(titles)
-            for d in details:
-                row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(28), size_hint_x=None)
-                row.width = content_width
-                vals = [d.get('round_index'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
-                for v in vals:
-                    lbl = Label(text=self._fmt(v,2 if isinstance(v,float) else 0), size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(28))
-                    try:
-                        lbl.color = TEXT_COLOR
-                        if FONT_NAME:
-                            lbl.font_name = FONT_NAME
-                        lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-                    except Exception:
-                        pass
-                    lbl.width = int(content_width / content_cols) if content_cols else content_width
-                    row.add_widget(lbl)
-                self.rows_container.add_widget(row)
+
+            # chunked rendering for details
+            detail_entries = list(details)
+            chunk_size = getattr(self, 'CHUNK_SIZE', 20)
+            total_entries = len(detail_entries)
+            idx_state = {'i': 0}
+
+            def _add_detail_chunk(dt):
+                try:
+                    i = idx_state['i']
+                    end = min(i + chunk_size, total_entries)
+                    for j in range(i, end):
+                        d = detail_entries[j]
+                        row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(28), size_hint_x=None)
+                        row.width = content_width
+                        vals = [d.get('round_index'), d.get('player'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
+                        for col_i, v in enumerate(vals):
+                            if col_i == 1:
+                                text = str(v)
+                            else:
+                                text = self._fmt(v, 2 if isinstance(v, float) else 0)
+                            lbl = Label(text=text, size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(28))
+                            try:
+                                lbl.color = TEXT_COLOR
+                                if FONT_NAME:
+                                    lbl.font_name = FONT_NAME
+                                lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                            except Exception:
+                                pass
+                            if col_i == 1:
+                                lbl.width = dp(140)
+                            else:
+                                lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
+                            row.add_widget(lbl)
+                        self.rows_container.add_widget(row)
+                    idx_state['i'] = end
+                    if end >= total_entries:
+                        try:
+                            if getattr(self, '_chunk_ev', None) is not None:
+                                try:
+                                    self._chunk_ev.cancel()
+                                except Exception:
+                                    pass
+                                self._chunk_ev = None
+                        except Exception:
+                            pass
+                        return
+                except Exception:
+                    pass
+
+            try:
+                self._chunk_ev = Clock.schedule_interval(_add_detail_chunk, 1.0 / 60.0)
+            except Exception:
+                for d in detail_entries:
+                    row = GridLayout(cols=content_cols, size_hint_y=None, height=dp(28), size_hint_x=None)
+                    row.width = content_width
+                    vals = [d.get('round_index'), d.get('player'), d.get('score'), d.get('base'), d.get('rank'), d.get('dun')]
+                    for col_i, v in enumerate(vals):
+                        if col_i == 1:
+                            text = str(v)
+                        else:
+                            text = self._fmt(v, 2 if isinstance(v, float) else 0)
+                        lbl = Label(text=text, size_hint_x=None, size_hint_y=None, halign='left', valign='top', height=dp(28))
+                        try:
+                            lbl.color = TEXT_COLOR
+                            if FONT_NAME:
+                                lbl.font_name = FONT_NAME
+                            lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
+                        except Exception:
+                            pass
+                        if col_i == 1:
+                            lbl.width = dp(140)
+                        else:
+                            lbl.width = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
+                        row.add_widget(lbl)
+                    self.rows_container.add_widget(row)
 
         try:
             # ensure vertical scroll starts at top
             Clock.schedule_once(lambda dt: setattr(self.hv, 'scroll_y', 1.0), 0)
+        except Exception:
+            pass
+        try:
+            elapsed = (time.perf_counter() - start) * 1000.0
+            print(f"statistics.refresh: rendered rows={len(self.rows_container.children)} in {elapsed:.1f} ms (mode={self.mode})")
         except Exception:
             pass
 
@@ -555,13 +699,20 @@ class StatisticsScreen(Screen):
                 dt = now - timedelta(minutes=i)
 
                 # generate random offsets that sum to zero
-                # use normal-distributed floats, remove mean, round to ints and ensure sum zero
-                while True:
-                    samples = [random.gauss(0, 25) for _ in range(num_players)]
-                    mean = sum(samples) / num_players
-                    offsets = [int(round(s - mean)) for s in samples]
-                    if sum(offsets) == 0:
-                        break
+                # use normal-distributed floats, remove mean, round to ints and then
+                # deterministically adjust any rounding difference so the sum is zero.
+                samples = [random.gauss(0, 25) for _ in range(num_players)]
+                mean = sum(samples) / num_players
+                offsets = [int(round(s - mean)) for s in samples]
+                diff = sum(offsets)
+                if diff != 0:
+                    # distribute the difference across players to make sum zero
+                    for k in range(abs(diff)):
+                        idx = k % num_players
+                        if diff > 0:
+                            offsets[idx] -= 1
+                        else:
+                            offsets[idx] += 1
 
                 bases = [100 + off for off in offsets]
                 # ensure non-negative bases; if negative, retry
@@ -578,6 +729,20 @@ class StatisticsScreen(Screen):
                 # distribute remainder to first `rem` players (subtract 1 to remove extra)
                 for j in range(rem):
                     scores[j] -= 1
+
+                # enforce scores to be multiples of 5 while keeping sum == 0
+                # round each score to nearest multiple of 5, then rebalance
+                scores_5 = [int(round(s / 5.0)) * 5 for s in scores]
+                diff = sum(scores_5)
+                if diff != 0:
+                    # diff is multiple of 5; distribute adjustments of -5 or +5
+                    step = 5 if diff < 0 else -5
+                    need = abs(diff) // 5
+                    for k in range(need):
+                        idx = k % num_players
+                        scores_5[idx] += step
+                # use the adjusted multiples-of-5 scores
+                scores = scores_5
 
                 # compute duns correlated with negative offset (players who lost more get more duns)
                 duns = []
@@ -639,6 +804,20 @@ class StatisticsScreen(Screen):
                 except Exception:
                     pass
             print(f'Generated {n} test rounds for players: {players}')
+            # refresh score screen if present so the记分 page shows generated rounds
+            try:
+                from kivy.app import App as _App
+                app = _App.get_running_app()
+                if app is not None and getattr(app, '_sm', None) is not None:
+                    try:
+                        scr = app._sm.get_screen('score')
+                        if hasattr(scr, 'rebuild_board'):
+                            scr.rebuild_board()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # also refresh statistics screen view
             self.refresh()
         except Exception as e:
             print('Failed to generate test data', e)
