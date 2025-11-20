@@ -152,22 +152,47 @@ for _fp in _fa_candidates:
     except Exception:
         pass
 # Also look for bundled FontAwesome in project assets (useful for APK builds)
-_local_fa_candidates = [
-    os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'fontawesome-webfont.ttf'),
-    os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'FontAwesome.otf'),
-    os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'fa-solid-900.ttf'),
-]
-for _fp in _local_fa_candidates:
-    try:
-        if os.path.exists(_fp):
-            try:
-                LabelBase.register(name='FA', fn_regular=_fp)
-                FA_FONT = 'FA'
-                break
-            except Exception:
-                FA_FONT = None
-    except Exception:
-        pass
+# Try using resource_find first (works in APK), then fall back to direct paths
+try:
+    from kivy.resources import resource_find
+    _asset_fa_candidates = [
+        'assets/fonts/fontawesome-webfont.ttf',
+        'assets/fonts/FontAwesome.otf',
+        'assets/fonts/fa-solid-900.ttf',
+    ]
+    for _rel_path in _asset_fa_candidates:
+        try:
+            _fp = resource_find(_rel_path)
+            if _fp and os.path.exists(_fp):
+                try:
+                    LabelBase.register(name='FA', fn_regular=_fp)
+                    FA_FONT = 'FA'
+                    break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+except Exception:
+    pass
+
+# Fallback: try direct paths relative to this file
+if not FA_FONT:
+    _local_fa_candidates = [
+        os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'fontawesome-webfont.ttf'),
+        os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'FontAwesome.otf'),
+        os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'fa-solid-900.ttf'),
+    ]
+    for _fp in _local_fa_candidates:
+        try:
+            if os.path.exists(_fp):
+                try:
+                    LabelBase.register(name='FA', fn_regular=_fp)
+                    FA_FONT = 'FA'
+                    break
+                except Exception:
+                    FA_FONT = None
+        except Exception:
+            pass
 
 # simple listener registry so other modules can refresh visuals when theme changes
 _THEME_LISTENERS = []

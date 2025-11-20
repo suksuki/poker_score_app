@@ -9,9 +9,84 @@ from kivy.clock import Clock
 from kivy.uix.textinput import TextInput
 import weakref
 import theme as _theme
+import os
+import sys
 
 # registry of widgets that need theme-driven updates (weak refs to avoid leaks)
 _THEMED_WIDGETS = weakref.WeakSet()
+
+def _find_resource_file(relative_path):
+    """
+    Find a resource file using multiple methods for cross-platform compatibility.
+    Works on desktop, Android, and iOS.
+    
+    On Android, files added via android.add_assets are accessible through
+    resource_find or can be found in the app's private directory.
+    """
+    if not relative_path:
+        return None
+    
+    # Method 1: Try resource_find (works on desktop and mobile platforms)
+    # This is the primary method for Kivy apps
+    try:
+        from kivy.resources import resource_find
+        found = resource_find(relative_path)
+        if found:
+            # resource_find may return a path that exists or a path in the APK
+            # In Android, it might return a path that doesn't exist on filesystem
+            # but can still be used by Image widget
+            if os.path.exists(found):
+                return found
+            # Even if path doesn't exist, try it anyway (Kivy handles APK paths)
+            return found
+    except Exception:
+        pass
+    
+    # Method 2: Try relative to current working directory
+    try:
+        if os.path.exists(relative_path):
+            return os.path.abspath(relative_path)
+    except Exception:
+        pass
+    
+    # Method 3: Try relative to main.py location (for packaged apps)
+    try:
+        import main
+        main_dir = os.path.dirname(os.path.abspath(main.__file__))
+        full_path = os.path.join(main_dir, relative_path)
+        if os.path.exists(full_path):
+            return full_path
+    except Exception:
+        pass
+    
+    # Method 4: Try in Android app directory (for Android builds)
+    # On Android, assets from android.add_assets are in the app's private directory
+    try:
+        # Check if we're on Android
+        if 'ANDROID_ARGUMENT' in os.environ or hasattr(sys, 'getandroidapilevel'):
+            # Try common Android asset locations
+            android_paths = [
+                os.path.join(os.path.dirname(sys.executable), relative_path),
+                os.path.join(os.path.expanduser('~'), relative_path),
+            ]
+            for path in android_paths:
+                if os.path.exists(path):
+                    return path
+    except Exception:
+        pass
+    
+    # Method 5: Try using os.getcwd() as base
+    try:
+        cwd_path = os.path.join(os.getcwd(), relative_path)
+        if os.path.exists(cwd_path):
+            return os.path.abspath(cwd_path)
+    except Exception:
+        pass
+    
+    # Method 6: Return the relative path anyway - Kivy Image widget might handle it
+    # This is important for Android where resource_find might return a valid path
+    # that doesn't exist on filesystem but works in the APK
+    return relative_path
 
 def _register_themable(obj):
     try:
@@ -258,9 +333,8 @@ def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
             # If FontAwesome not available, try bundled PNG icons
             if icon_w is None:
                 try:
-                    from kivy.resources import resource_find
                     img_src = _gold if rank == 1 else _gray
-                    found = resource_find(img_src)
+                    found = _find_resource_file(img_src)
                     if found:
                         icon_w = Image(source=found, size_hint=(None,1), width=dp(20))
                 except Exception:
