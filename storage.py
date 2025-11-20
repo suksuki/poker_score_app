@@ -7,7 +7,46 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                # ensure structure
+                if not isinstance(data, dict):
+                    return {"players": [], "rounds": []}
+                rounds = data.get('rounds')
+                # ensure rounds is a list
+                if isinstance(rounds, list):
+                    import datetime as _dt
+                    migrated = False
+                    for r in rounds:
+                        try:
+                            if isinstance(r, dict) and 'date' not in r:
+                                # best-effort: add ISO timestamp for missing dates
+                                r['date'] = _dt.datetime.now().isoformat()
+                                migrated = True
+                        except Exception:
+                            pass
+                    # persist migration back to disk so older data now have timestamps
+                    if migrated:
+                        try:
+                            # keep a backup before overwriting
+                            try:
+                                ensure_backup(DATA_FILE)
+                            except Exception:
+                                pass
+                            # use atomic save
+                            try:
+                                safe_save_json(DATA_FILE, data)
+                            except Exception:
+                                # fallback to direct write if atomic save unavailable
+                                with open(DATA_FILE, "w", encoding="utf-8") as out_f:
+                                    json.dump(data, out_f, ensure_ascii=False, indent=2)
+                        except Exception:
+                            # fall back to not crashing if write fails
+                            pass
+                else:
+                    data['rounds'] = []
+                if 'players' not in data or not isinstance(data.get('players'), list):
+                    data['players'] = []
+                return data
         except Exception:
             pass
     return {"players": [], "rounds": []}
@@ -45,5 +84,24 @@ def safe_load_json(path):
         return {}
 
 def safe_save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    # atomic write: write to a temp file and replace the target
+    tmp = path + ".tmp"
+    try:
+        dirpath = os.path.dirname(path) or '.'
+        # ensure tmp is created in same directory
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        # replace atomically
+        os.replace(tmp, path)
+    except Exception:
+        # best-effort fallback: try writing directly
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
