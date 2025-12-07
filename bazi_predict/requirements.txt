@@ -4,3 +4,5 @@ ollama
 pandas
 plotly
 beautifulsoup4
+requests
+duckduckgo-search
