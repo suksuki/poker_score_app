@@ -857,3 +857,100 @@ class ScoreInputItem(BoxLayout):
             dun = self.dun_value
         return {'base': base, 'dun': dun, 'dun_score': self.dun_score}
         return {'base': base, 'dun': dun, 'dun_score': self.dun_score}
+
+# ---------------------- New Components extracted from StatisticsScreen ----------------------
+from kivy.uix.togglebutton import ToggleButtonBehavior
+from kivy.uix.dropdown import DropDown
+from kivy.animation import Animation
+from kivy.properties import NumericProperty
+
+class Separator(BoxLayout):
+    def __init__(self, color=None, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint_y = None
+        self.height = dp(1)
+        r, g, b, a = color if color else _T('DROPDOWN_SEPARATOR_COLOR')
+        with self.canvas:
+            Color(r, g, b, a)
+            self._rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=lambda *_: setattr(self._rect, 'pos', self.pos))
+        self.bind(size=lambda *_: setattr(self._rect, 'size', self.size))
+
+
+class RadioToggle(ToggleButtonBehavior, BoxLayout):
+    _dot_alpha = NumericProperty(0.0)
+    _dot_size = NumericProperty(dp(10))
+
+    def __init__(self, text='', group=None, **kwargs):
+        super().__init__(orientation='horizontal', spacing=dp(8), padding=(dp(8), dp(8)), **kwargs)
+        if group:
+            self.group = group
+
+        # label
+        self.lbl = Label(text=text, valign='middle', size_hint_x=1)
+        if FONT_NAME:
+            self.lbl.font_name = FONT_NAME
+        self.lbl.color = _T('TEXT_COLOR')
+        self.lbl.font_size = sp(15)
+
+        # draw dot in this widget's canvas so we can position it centered vertically
+        with self.canvas:
+            self._dot_color = Color(*_T('ACCENT'))
+            self._dot_color.a = 0
+            self._dot_ellipse = Ellipse(pos=(self.x + dp(6), self.y + (self.height - self._dot_size)/2), size=(self._dot_size, self._dot_size))
+        # update when layout changes
+        self.bind(pos=self._update_dot_canvas, size=self._update_dot_canvas, _dot_size=self._update_dot_canvas, _dot_alpha=self._update_dot_alpha)
+
+        # add a spacer (left) and the label; spacer size accounts for dot
+        spacer = Widget(size_hint_x=None, width=dp(18))
+        self.add_widget(spacer)
+        self.add_widget(self.lbl)
+        
+        try:
+             _register_themable(self)
+        except Exception:
+             pass
+
+    def _update_dot_canvas(self, *a):
+        size = (self._dot_size, self._dot_size)
+        x = self.x + dp(6)
+        y = self.y + (self.height - self._dot_size) / 2
+        if hasattr(self, '_dot_ellipse') and self._dot_ellipse:
+            self._dot_ellipse.pos = (x, y)
+            self._dot_ellipse.size = size
+
+    def _update_dot_alpha(self, *a):
+        if hasattr(self, '_dot_color') and self._dot_color:
+            self._dot_color.a = float(self._dot_alpha)
+
+    def on_state(self, widget, value):
+        # animate dot alpha and size to give press feedback
+        if value == 'down':
+            Animation.cancel_all(self)
+            Animation(_dot_size=dp(12), _dot_alpha=1.0, d=0.12).start(self)
+        else:
+            Animation.cancel_all(self)
+            Animation(_dot_size=dp(10), _dot_alpha=0.0, d=0.12).start(self)
+            
+    def restyle(self):
+        # Update colors when theme changes
+        if hasattr(self, '_dot_color'):
+             self._dot_color.rgb = _T('ACCENT')[:3]
+        if hasattr(self, 'lbl'):
+             self.lbl.color = _T('TEXT_COLOR')
+
+
+class AnimatedDropDown(DropDown):
+    def open(self, widget):
+        # start invisible then let super create and position
+        self.opacity = 0
+        super().open(widget)
+        Animation.cancel_all(self)
+        Animation(opacity=1.0, d=0.16).start(self)
+
+    def add_widget(self, widget, *a, **kw):
+        # insert a 1px separator between SpinnerOption items
+        from kivy.uix.spinner import SpinnerOption as _SO
+        if isinstance(widget, _SO) and len(self.children) > 0:
+            super().add_widget(Separator())
+        super().add_widget(widget, *a, **kw)
