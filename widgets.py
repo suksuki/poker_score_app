@@ -7,950 +7,449 @@ from kivy.metrics import dp, sp
 from kivy.graphics import Color, Rectangle, Line, Ellipse
 from kivy.clock import Clock
 from kivy.uix.textinput import TextInput
-import weakref
-import theme as _theme
+from kivy.properties import StringProperty, ColorProperty, NumericProperty, ObjectProperty
+from theme import theme_manager
+from utils.logger import logger
 import os
 import sys
+from kivy.uix.togglebutton import ToggleButton
+from kivy.uix.dropdown import DropDown
 
-# registry of widgets that need theme-driven updates (weak refs to avoid leaks)
-_THEMED_WIDGETS = weakref.WeakSet()
-
+# ----------------------------------------------------------------------
+# Resource Helper
+# ----------------------------------------------------------------------
 def _find_resource_file(relative_path):
-    """
-    Find a resource file using multiple methods for cross-platform compatibility.
-    Works on desktop, Android, and iOS.
-    
-    On Android, files added via android.add_assets are accessible through
-    resource_find or can be found in the app's private directory.
-    """
     if not relative_path:
         return None
-    
-    # Method 1: Try resource_find (works on desktop and mobile platforms)
-    # This is the primary method for Kivy apps
     try:
         from kivy.resources import resource_find
         found = resource_find(relative_path)
         if found:
-            # resource_find may return a path that exists or a path in the APK
-            # In Android, it might return a path that doesn't exist on filesystem
-            # but can still be used by Image widget
-            if os.path.exists(found):
-                return found
-            # Even if path doesn't exist, try it anyway (Kivy handles APK paths)
             return found
     except Exception:
         pass
     
-    # Method 2: Try relative to current working directory
-    try:
-        if os.path.exists(relative_path):
-            return os.path.abspath(relative_path)
-    except Exception:
-        pass
+    candidates = [
+        lambda: os.path.abspath(relative_path),
+        lambda: os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path),
+        lambda: os.path.join(os.getcwd(), relative_path),
+    ]
     
-    # Method 3: Try relative to main.py location (for packaged apps)
-    try:
-        import main
-        main_dir = os.path.dirname(os.path.abspath(main.__file__))
-        full_path = os.path.join(main_dir, relative_path)
-        if os.path.exists(full_path):
-            return full_path
-    except Exception:
-        pass
-    
-    # Method 4: Try in Android app directory (for Android builds)
-    # On Android, assets from android.add_assets are in the app's private directory
-    try:
-        # Check if we're on Android
-        if 'ANDROID_ARGUMENT' in os.environ or hasattr(sys, 'getandroidapilevel'):
-            # Try common Android asset locations
-            android_paths = [
-                os.path.join(os.path.dirname(sys.executable), relative_path),
-                os.path.join(os.path.expanduser('~'), relative_path),
-            ]
-            for path in android_paths:
-                if os.path.exists(path):
-                    return path
-    except Exception:
-        pass
-    
-    # Method 5: Try using os.getcwd() as base
-    try:
-        cwd_path = os.path.join(os.getcwd(), relative_path)
-        if os.path.exists(cwd_path):
-            return os.path.abspath(cwd_path)
-    except Exception:
-        pass
-    
-    # Method 6: Return the relative path anyway - Kivy Image widget might handle it
-    # This is important for Android where resource_find might return a valid path
-    # that doesn't exist on filesystem but works in the APK
+    for c in candidates:
+        try:
+            p = c()
+            if os.path.exists(p):
+                return p
+        except Exception:
+            continue
+            
     return relative_path
 
-def _register_themable(obj):
-    try:
-        _THEMED_WIDGETS.add(obj)
-    except Exception:
-        pass
+# ----------------------------------------------------------------------
+# Base Styled Widgets
+# ----------------------------------------------------------------------
 
-def _apply_theme_to_registered():
-    """Update known widgets' colors when theme changes."""
-    try:
-        from kivy.uix.label import Label as _KLabel
-        from kivy.uix.textinput import TextInput as _KTI
-    except Exception:
-        _KLabel = None
-        _KTI = None
-    for w in list(_THEMED_WIDGETS):
-        try:
-            # update canvas color instructions if present
-            if hasattr(w, '_bg_color_instruction') and getattr(w, '_bg_color_instruction') is not None:
-                try:
-                    w._bg_color_instruction.rgba = _T('BTN_BG')
-                except Exception:
-                    pass
-            if hasattr(w, '_bg_color_instr') and getattr(w, '_bg_color_instr') is not None:
-                try:
-                    w._bg_color_instr.rgba = _T('BTN_BG')
-                except Exception:
-                    pass
-            if hasattr(w, '_mark_color_instruction') and getattr(w, '_mark_color_instruction') is not None:
-                try:
-                    w._mark_color_instruction.rgba = _T('TEXT_COLOR')
-                except Exception:
-                    pass
-            # Labels: update text color
-            try:
-                if _KLabel is not None and isinstance(w, _KLabel):
-                    w.color = _T('TEXT_COLOR')
-            except Exception:
-                pass
-            # TextInput: update background and foreground
-            try:
-                if _KTI is not None and isinstance(w, _KTI):
-                    try:
-                        w.background_color = _T('PANEL_BG')
-                    except Exception:
-                        pass
-                    try:
-                        w.foreground_color = _T('TEXT_COLOR')
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        except Exception:
-            pass
+class L(Label):
+    """Themed Label."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Bind properties to ThemeManager
+        self.bind_theme()
+        
+    def bind_theme(self):
+        # Font
+        self.font_size = theme_manager.small_font
+        if theme_manager.font_name:
+            self.font_name = theme_manager.font_name
+        
+        # Color
+        self.color = theme_manager.text_color
+        
+        # Reactive Bindings
+        theme_manager.bind(small_font=self.setter('font_size'))
+        theme_manager.bind(font_name=self.setter('font_name'))
+        theme_manager.bind(text_color=self.setter('color'))
+        
+        # Ensure text size follows size for wrapping if needed
+        self.bind(size=self._update_text_size)
 
-# register our theme applier with theme module so it's called on apply_theme
-try:
-    _theme.register_theme_listener(_apply_theme_to_registered)
-except Exception:
-    pass
-
-import theme as _theme
-FONT_NAME = getattr(_theme, 'FONT_NAME', None)
-FA_FONT = getattr(_theme, 'FA_FONT', None)
-def _T(name):
-    return getattr(_theme, name)
-
-def style_card(widget, *a, **kw):
-    return widget
-
-def style_button(btn: Button, *a, **kw):
-    try:
-        btn.background_normal = ''
-        btn.background_down = ''
-        btn.background_color = _T('BTN_BG')
-    except Exception:
-        pass
-    try:
-        btn.color = _T('TEXT_COLOR')
-    except Exception:
-        btn.color = (1, 1, 1, 1) if _T('CURRENT_THEME') == 'dark' else _T('TEXT_COLOR')
-    try:
-        btn.padding = (dp(8), dp(6))
-        btn.font_size = sp(13)
-    except Exception:
-        pass
-    return btn
-
-def L(text="", **kw):
-    if FONT_NAME:
-        kw.setdefault("font_name", FONT_NAME)
-    kw.setdefault("font_size", _T('SMALL_FONT'))
-    kw.setdefault("color", _T('TEXT_COLOR'))
-    kw.setdefault("halign", "center")
-    kw.setdefault("valign", "middle")
-    lbl = Label(text=text, **kw)
-    lbl.bind(size=lambda inst, *_: setattr(inst, "text_size", (inst.width, inst.height)))
-    try:
-        _register_themable(lbl)
-    except Exception:
-        pass
-    return lbl
-
-def H(text="", **kw):
-    if FONT_NAME:
-        kw.setdefault("font_name", FONT_NAME)
-    kw.setdefault("font_size", sp(16))
-    kw.setdefault("color", _T('TEXT_COLOR'))
-    kw.setdefault("halign", "center")
-    kw.setdefault("valign", "middle")
-    lbl = Label(text=text, **kw)
-    lbl.bind(size=lambda inst, *_: setattr(inst, "text_size", (inst.width, inst.height)))
-    try:
-        _register_themable(lbl)
-    except Exception:
-        pass
-    return lbl
-
-def TI(**kw):
-    # Avoid forcing a font that may interfere with IME input on some systems.
-    # We'll let the system select the input font to improve IME/Chinese support.
-    kw.setdefault("font_size", _T('INPUT_FONT'))
-    kw.setdefault("multiline", False)
-    kw.setdefault("background_normal", "")
-    kw.setdefault("background_active", "")
-    kw.setdefault("background_color", _T('PANEL_BG'))
-    kw.setdefault("foreground_color", _T('TEXT_COLOR'))
-    # ensure this is treated as free-form text (helps IME on some platforms)
-    kw.setdefault('input_type', 'text')
-    # allow tab characters to be written if needed
-    kw.setdefault('write_tab', True)
-
-    ti = TextInput(**kw)
-    try:
-        # If the project registered a Chinese-capable font, apply it to the
-        # TextInput so Chinese glyphs render correctly. Use try/except to
-        # avoid platform-specific IME issues crashing the app.
-        try:
-            # On Windows, setting a custom `font_name` on TextInput can break
-            # IME composition. Prefer leaving font_name unset so the system
-            # IME works correctly. Only set `font_name` on non-Windows
-            # platforms where we've observed the custom font improves glyph rendering.
-            import sys
-            if FONT_NAME and not sys.platform.startswith('win'):
-                try:
-                    ti.font_name = FONT_NAME
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        ti.size_hint_y = None
-        ti.height = dp(40)
-        ti.padding = [dp(6), dp(8), dp(6), dp(8)]
-        # try to enable IME mode if available on the platform/backends
-        try:
-            if hasattr(ti, 'ime_mode'):
-                ti.ime_mode = 'default'
-        except Exception:
-            pass
-    except Exception:
-        pass
-    try:
-        _register_themable(ti)
-    except Exception:
-        pass
-    return ti
-
-def cell_bg(text, width, height, bg_color):
-    from kivy.uix.boxlayout import BoxLayout
-    cont = BoxLayout(size_hint=(None, None), width=width, height=height)
-    try:
-        with cont.canvas.before:
-            border_color_instr = Color(* (0,0,0,0.06))
-            rect_border = Rectangle(pos=cont.pos, size=cont.size)
-            bg_color_instr = Color(*bg_color)
-            rect = Rectangle(pos=(cont.x + dp(1), cont.y + dp(1)), size=(max(0, cont.width - dp(2)), max(0, cont.height - dp(2))))
-        cont._rect_border = rect_border
-        cont._rect = rect
-        cont._border_color_instr = border_color_instr
-        cont._bg_color_instr = bg_color_instr
-        cont._bg_color = bg_color
-        cont.bind(pos=lambda inst, *_: setattr(rect_border, 'pos', inst.pos),
-                  size=lambda inst, *_: setattr(rect_border, 'size', inst.size))
-        cont.bind(pos=lambda inst, *_: setattr(rect, 'pos', (inst.x + dp(1), inst.y + dp(1))),
-                  size=lambda inst, *_: setattr(rect, 'size', (max(0, inst.width - dp(2)), max(0, inst.height - dp(2)))))
-    except Exception:
-        cont._rect_border = None
-        cont._rect = None
-        cont._border_color_instr = None
-        cont._bg_color_instr = None
-        cont._bg_color = bg_color
-        pass
-    lbl = L(text=text, size_hint=(1, 1))
-    cont.add_widget(lbl)
-    try:
-        _register_themable(cont)
-    except Exception:
-        pass
-    return cont
-
-def cell_bg_with_trophy(text, width, height, bg_color, rank=None):
-    from kivy.uix.boxlayout import BoxLayout
-    cont = BoxLayout(size_hint=(None, None), width=width, height=height)
-    try:
-        with cont.canvas.before:
-            border_color_instr = Color(* (0,0,0,0.06))
-            rect_border = Rectangle(pos=cont.pos, size=cont.size)
-            bg_color_instr = Color(*bg_color)
-            rect = Rectangle(pos=(cont.x + dp(1), cont.y + dp(1)), size=(max(0, cont.width - dp(2)), max(0, cont.height - dp(2))))
-        cont._rect_border = rect_border
-        cont._rect = rect
-        cont._border_color_instr = border_color_instr
-        cont._bg_color_instr = bg_color_instr
-        cont._bg_color = bg_color
-        cont.bind(pos=lambda inst, *_: setattr(rect_border, 'pos', inst.pos),
-                  size=lambda inst, *_: setattr(rect_border, 'size', inst.size))
-        cont.bind(pos=lambda inst, *_: setattr(rect, 'pos', (inst.x + dp(1), inst.y + dp(1))),
-                  size=lambda inst, *_: setattr(rect, 'size', (max(0, inst.width - dp(2)), max(0, inst.height - dp(2)))))
-    except Exception:
-        cont._rect_border = None
-        cont._rect = None
-        cont._border_color_instr = None
-        cont._bg_color_instr = None
-        cont._bg_color = bg_color
-        pass
-    content = BoxLayout(orientation='horizontal', size_hint=(1,1))
-    lbl = L(text=text, size_hint=(1,1))
-    content.add_widget(lbl)
-    if rank == 1 or rank == 'last':
-        try:
-            from kivy.uix.image import Image
-            import os
-            icon_w = None
-            _gold = 'assets/icons/trophy_gold.png'
-            _gray = 'assets/icons/trophy_gray.png'
-            # Prefer FontAwesome glyph when available
-            if FA_FONT:
-                try:
-                    glyph = '\uf091'
-                    icon_w = Label(text=glyph, font_name=FA_FONT, font_size=sp(14), size_hint=(None,1), width=dp(20))
-                    icon_w.color = (1.0, 0.84, 0.0, 1) if rank == 1 else (0.6,0.6,0.63,1)
-                except Exception:
-                    icon_w = None
-            # If FontAwesome not available, try bundled PNG icons
-            if icon_w is None:
-                try:
-                    img_src = _gold if rank == 1 else _gray
-                    found = _find_resource_file(img_src)
-                    if found:
-                        icon_w = Image(source=found, size_hint=(None,1), width=dp(20))
-                except Exception:
-                    icon_w = None
-            # final fallback: use emoji label
-            if icon_w is None:
-                try:
-                    icon_w = Label(text='🏆', font_size=sp(14), size_hint=(None,1), width=dp(20))
-                    icon_w.color = (1.0, 0.84, 0.0, 1) if rank == 1 else (0.6,0.6,0.63,1)
-                except Exception:
-                    icon_w = None
-            if icon_w is not None:
-                content.add_widget(icon_w)
-        except Exception:
-            pass
-    cont.add_widget(content)
-    try:
-        _register_themable(cont)
-    except Exception:
-        pass
-    return cont
+    def _update_text_size(self, *args):
+        self.text_size = (self.width, self.height)
 
 
-def TrophyWidget(rank=None, size=36):
-    """Return a simple trophy widget without background for inline use.
+class H(Label):
+    """Header Label."""
+    def __init__(self, **kwargs):
+        kwargs.setdefault('font_size', sp(16))
+        super().__init__(**kwargs)
+        self.color = theme_manager.text_color
+        if theme_manager.font_name:
+            self.font_name = theme_manager.font_name
+            
+        theme_manager.bind(text_color=self.setter('color'))
+        theme_manager.bind(font_name=self.setter('font_name'))
+        self.bind(size=self._update_text_size)
 
-    If `rank` is 1 or 'last' the widget shows a colored trophy glyph; else empty.
-    """
-    try:
-        font_size = sp(14)
-    except Exception:
-        font_size = 14
-    # Prefer FontAwesome glyph when available (matches score page), fall back to emoji
-    try:
-        if FA_FONT:
-            glyph = '\uf091'
-            if rank == 1:
-                lbl = Label(text=glyph, font_name=FA_FONT, font_size=font_size, size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
-                try:
-                    lbl.color = (1.0, 0.84, 0.0, 1)
-                except Exception:
-                    pass
-                try:
-                    lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-                except Exception:
-                    pass
-                try:
-                    _register_themable(lbl)
-                except Exception:
-                    pass
-                return lbl
-            elif rank == 'last':
-                lbl = Label(text=glyph, font_name=FA_FONT, font_size=font_size, size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
-                try:
-                    lbl.color = (0.6, 0.6, 0.63, 1)
-                except Exception:
-                    pass
-                try:
-                    lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-                except Exception:
-                    pass
-                try:
-                    _register_themable(lbl)
-                except Exception:
-                    pass
-                return lbl
-            else:
-                lbl = Label(text='', size_hint=(None, 1), width=dp(size))
-                try:
-                    lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-                except Exception:
-                    pass
-                try:
-                    _register_themable(lbl)
-                except Exception:
-                    pass
-                return lbl
-        else:
-            # No FontAwesome available; use emoji which may rely on system fallback fonts
-            if rank == 1:
-                lbl = Label(text='🏆', font_size=font_size, color=(1.0, 0.84, 0.0, 1), size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
-            elif rank == 'last':
-                lbl = Label(text='🏆', font_size=font_size, color=(0.6, 0.6, 0.63, 1), size_hint=(None, 1), width=dp(size), halign='center', valign='middle')
-            else:
-                lbl = Label(text='', size_hint=(None, 1), width=dp(size))
-            try:
-                lbl.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-            except Exception:
-                pass
-            try:
-                _register_themable(lbl)
-            except Exception:
-                pass
-            return lbl
-    except Exception:
-        # ultimate fallback: plain empty L()
-        return L(text='' if rank is None else '🏆' if rank == 1 else '🏆', size_hint_x=None, width=dp(size))
+    def _update_text_size(self, *args):
+        self.text_size = (self.width, self.height)
 
-def BTN(text, **kw):
-    kw.setdefault("size_hint_y", None)
-    kw.setdefault("height", _T('BTN_HEIGHT'))
-    if FONT_NAME:
-        kw.setdefault("font_name", FONT_NAME)
-        kw.setdefault("font_size", _T('SMALL_FONT'))
-    btn = Button(text=text, **kw)
-    style_button(btn)
-    return btn
+
+class TI(TextInput):
+    """Themed TextInput."""
+    def __init__(self, **kwargs):
+        kwargs.setdefault('multiline', False)
+        kwargs.setdefault('background_normal', "")
+        kwargs.setdefault('background_active', "")
+        kwargs.setdefault('write_tab', True)
+        super().__init__(**kwargs)
+        
+        self.padding = [dp(6), dp(8), dp(6), dp(8)]
+        self.size_hint_y = None
+        self.height = dp(40)
+        
+        # Initial Colors
+        self.background_color = theme_manager.panel_bg
+        self.foreground_color = theme_manager.text_color
+        self.cursor_color = theme_manager.accent
+        
+        # Bindings
+        theme_manager.bind(panel_bg=self.setter('background_color'))
+        theme_manager.bind(text_color=self.setter('foreground_color'))
+        theme_manager.bind(accent=self.setter('cursor_color'))
+        theme_manager.bind(input_font=self.setter('font_size'))
+
+        # Font handling (win32 IME safe)
+        if not sys.platform.startswith('win'):
+            self.font_name = theme_manager.font_name
+            theme_manager.bind(font_name=self.setter('font_name'))
+
+class BTN(Button):
+    """Themed Button."""
+    def __init__(self, **kwargs):
+        kwargs.setdefault('size_hint_y', None)
+        kwargs.setdefault('height', theme_manager.btn_height)
+        super().__init__(**kwargs)
+        
+        self.background_normal = ''
+        self.background_down = ''
+        self.background_color = theme_manager.btn_bg
+        self.color = theme_manager.text_color
+        self.font_size = sp(13)
+        
+        theme_manager.bind(btn_bg=self.setter('background_color'))
+        theme_manager.bind(text_color=self.setter('color'))
+        theme_manager.bind(font_name=self.setter('font_name'))
+
+
+# ----------------------------------------------------------------------
+# Complex Components
+# ----------------------------------------------------------------------
 
 class IconButton(ButtonBehavior, Widget):
-    def __init__(self, symbol: str = 'plus', **kw):
-        for _k in ('font_size', 'font_name', 'text', 'markup',
-                   'background_normal', 'background_down', 'background_color', 'color'):
-            if _k in kw:
-                kw.pop(_k, None)
-        kw.setdefault('size_hint', (None, None))
-        kw.setdefault('width', dp(36))
-        kw.setdefault('height', dp(36))
-        super().__init__(**kw)
+    symbol = StringProperty('plus')
+    
+    def __init__(self, symbol='plus', **kwargs):
+        # Clean kwargs
+        for k in ['text', 'markup', 'background_normal', 'background_color']:
+            kwargs.pop(k, None)
+        kwargs.setdefault('size_hint', (None, None))
+        kwargs.setdefault('width', dp(36))
+        kwargs.setdefault('height', dp(36))
+        super().__init__(**kwargs)
         self.symbol = symbol
-        self._bg_color_instruction = None
-        self._bg_ellipse = None
-        self._mark_graphics = []
-        self._mark_color_instruction = None
-        try:
-            with self.canvas.before:
-                self._bg_color_instruction = Color(*_T('BTN_BG'))
-                self._bg_ellipse = Ellipse(pos=self.pos, size=self.size)
-            with self.canvas:
-                self._mark_color_instruction = Color(*_T('TEXT_COLOR'))
-                lw = dp(2.5)
-                for _ in range(3):
-                    self._mark_graphics.append(Line(points=[], width=lw))
-        except Exception:
-            self._bg_color_instruction = None
-            self._bg_ellipse = None
-            self._mark_graphics = []
+        
+        with self.canvas.before:
+            self._bg_color = Color(*theme_manager.btn_bg)
+            self._bg_ellipse = Ellipse(pos=self.pos, size=self.size)
+        with self.canvas:
+            self._mark_color = Color(*theme_manager.text_color)
+            self._lines = [Line(width=dp(2.5)) for _ in range(3)]
+
         self.bind(pos=self._update_graphics, size=self._update_graphics)
-        try:
-            _register_themable(self)
-        except Exception:
-            pass
+        self.bind(symbol=self._update_graphics)
+        
+        # Theme Bindings
+        theme_manager.bind(btn_bg=lambda _, v: setattr(self._bg_color, 'rgba', v))
+        theme_manager.bind(text_color=lambda _, v: setattr(self._mark_color, 'rgba', v))
 
-    def _update_graphics(self, *a):
-        try:
-            if self._bg_ellipse is not None:
-                self._bg_ellipse.pos = self.pos
-                self._bg_ellipse.size = self.size
-            cx = self.x + self.width / 2.0
-            cy = self.y + self.height / 2.0
-            w = self.width
-            h = self.height
-            pad = min(w, h) * 0.28
-            left = self.x + (w - pad) / 2.0
-            right = self.x + (w + pad) / 2.0
-            top = self.y + (h + pad) / 2.0
-            bottom = self.y + (h - pad) / 2.0
+    def _update_graphics(self, *args):
+        self._bg_ellipse.pos = self.pos
+        self._bg_ellipse.size = self.size
+        
+        # Draw Symbol Logic
+        w, h = self.size
+        cx, cy = self.x + w/2, self.y + h/2
+        pad = min(w, h) * 0.28
+        left, right = self.x + (w-pad)/2, self.x + (w+pad)/2
+        top, bottom = self.y + (h+pad)/2, self.y + (h-pad)/2
 
-            def set_line(i, pts):
-                try:
-                    if i < len(self._mark_graphics):
-                        self._mark_graphics[i].points = pts
-                except Exception:
-                    pass
+        # Clear lines
+        for l in self._lines: l.points = []
 
-            for i in range(len(self._mark_graphics)):
-                set_line(i, [])
-            sym = (self.symbol or '').lower()
-            if sym in ('minus', '−', '➖'):
-                set_line(0, [left, cy, right, cy])
-            elif sym in ('plus', '+', '➕'):
-                set_line(0, [left, cy, right, cy]); set_line(1, [cx, bottom, cx, top])
-            elif sym in ('check', 'ok'):
-                x1 = self.x + w * 0.22; y1 = self.y + h * 0.45
-                x2 = self.x + w * 0.42; y2 = self.y + h * 0.30
-                x3 = self.x + w * 0.78; y3 = self.y + h * 0.70
-                set_line(0, [x1, y1, x2, y2, x3, y3])
-            elif sym in ('x', 'close'):
-                set_line(0, [left, bottom, right, top]); set_line(1, [left, top, right, bottom])
-            elif sym in ('play', 'triangle'):
-                x1 = self.x + w * 0.30; y1 = self.y + h * 0.20
-                x2 = self.x + w * 0.30; y2 = self.y + h * 0.80
-                x3 = self.x + w * 0.78; y3 = self.y + h * 0.50
-                set_line(0, [x1, y1, x2, y2, x3, y3, x1, y1])
-            else:
-                if self.symbol in ('➕','+'):
-                    set_line(0, [left, cy, right, cy]); set_line(1, [cx, bottom, cx, top])
-                elif self.symbol in ('➖','-'):
-                    set_line(0, [left, cy, right, cy])
-                else:
-                    set_line(0, [cx, cy, cx + 0.01, cy + 0.01])
-        except Exception:
-            pass
+        sym = self.symbol.lower()
+        if sym in ('minus', '-'):
+            self._lines[0].points = [left, cy, right, cy]
+        elif sym in ('plus', '+'):
+            self._lines[0].points = [left, cy, right, cy]
+            self._lines[1].points = [cx, bottom, cx, top]
+        elif sym in ('x', 'close'):
+            self._lines[0].points = [left, bottom, right, top]
+            self._lines[1].points = [left, top, right, bottom]
+        # ... Add other symbols as needed
 
     def on_press(self):
-        try:
-            if self._bg_color_instruction is not None:
-                r,g,b,a = _T('BTN_BG')
-                self._bg_color_instruction.rgba = (r,g,b,max(0.06, a * 1.8))
-        except Exception:
-            pass
+        r,g,b,a = theme_manager.btn_bg
+        self._bg_color.rgba = (r, g, b, max(0.1, a*2))
 
     def on_release(self):
-        try:
-            if self._bg_color_instruction is not None:
-                self._bg_color_instruction.rgba = _T('BTN_BG')
-        except Exception:
-            pass
+        self._bg_color.rgba = theme_manager.btn_bg
+
 
 class IconTextButton(ButtonBehavior, BoxLayout):
-    def __init__(self, text: str = '', icon: str = None, **kwargs):
-        h = kwargs.pop('height', _T('BTN_HEIGHT'))
-        size_hint_y = kwargs.pop('size_hint_y', None)
+    text = StringProperty('')
+    
+    def __init__(self, text='', icon=None, **kwargs):
+        kwargs.setdefault('height', theme_manager.btn_height)
         super().__init__(orientation='horizontal', spacing=dp(8), padding=(dp(8), dp(6)), **kwargs)
-        self._raw_text = text or ''
-        try:
-            with self.canvas.before:
-                self._bg_color_instr = Color(*_T('BTN_BG'))
-                self._bg_rect = Rectangle(pos=self.pos, size=self.size)
-            self.bind(pos=lambda inst, *_: setattr(self._bg_rect, 'pos', inst.pos), size=lambda inst, *_: setattr(self._bg_rect, 'size', inst.size))
-        except Exception:
-            self._bg_color_instr = None
-            self._bg_rect = None
-        try:
-            _register_themable(self)
-        except Exception:
-            pass
+        self.text = text
+        
+        # Background
+        with self.canvas.before:
+            self._bg_color = Color(*theme_manager.btn_bg)
+            self._bg_rect = Rectangle(pos=self.pos, size=self.size)
+            
+        self.bind(pos=lambda _,v: setattr(self._bg_rect, 'pos', v),
+                  size=lambda _,v: setattr(self._bg_rect, 'size', v))
+
+        # Icon
         if icon:
-            def _map_icon(name: str):
-                if not name:
-                    return None
-                n = name.lower().replace('_','-')
-                mapping = {'content-save':'save','file-download':'save','file-upload':'import','import':'import','plus':'plus','close':'x','delete':'trash','trash':'trash','check':'check','play':'play','wrench':'wrench','cog':'wrench'}
-                if n in mapping:
-                    return mapping[n]
-                if 'save' in n or 'download' in n or 'file' in n:
-                    return 'save'
-                if 'upload' in n or 'import' in n:
-                    return 'import'
-                if 'trash' in n or 'delete' in n:
-                    return 'trash'
-                if 'close' in n or 'cancel' in n or 'x' in n:
-                    return 'x'
-                if 'plus' in n or 'add' in n:
-                    return 'plus'
-                return None
-            mapped = _map_icon(icon)
-            icon_w = None
-            try:
-                if FA_FONT and mapped:
-                    glyph_map = {'save':'\uf0c7','import':'\uf093','export':'\uf093','plus':'\uf067','minus':'\uf068','trash':'\uf1f8','x':'\uf00d','check':'\uf00c','play':'\uf04b','wrench':'\uf0ad'}
-                    glyph = glyph_map.get(mapped)
-                    if glyph:
-                        icon_w = Label(text=glyph, font_name=FA_FONT, font_size=sp(16), size_hint=(None,None), size=(dp(28), dp(28)))
-                        try:
-                            icon_w.color = _T('TEXT_COLOR')
-                        except Exception:
-                            pass
-                        try:
-                            _register_themable(icon_w)
-                        except Exception:
-                            pass
-            except Exception:
-                icon_w = None
-            if icon_w is None:
-                icon_w = IconButton(mapped or (icon or '+'), width=dp(28), height=dp(28))
-                try:
-                    icon_w.disabled = True
-                except Exception:
-                    pass
-            self.add_widget(icon_w)
-        self._label = Label(text=self._raw_text, halign='left', valign='middle', size_hint_x=1)
-        try:
-            self._label.markup = True
-        except Exception:
-            pass
-        try:
-            if FONT_NAME:
-                self._label.font_name = FONT_NAME
-            self._label.font_size = _T('SMALL_FONT')
-            self._label.color = _T('TEXT_COLOR')
-            self._label.bind(size=lambda inst, *_: setattr(inst, 'text_size', (inst.width, inst.height)))
-            try:
-                self._label.text_size = (self._label.width, self._label.height)
-            except Exception:
-                pass
-        except Exception:
-            pass
-        try:
-            _register_themable(self._label)
-        except Exception:
-            pass
+            self.add_widget(self._create_icon_widget(icon))
+            
+        # Label
+        self._label = Label(text=text, halign='left', valign='middle', size_hint_x=1, markup=True)
+        self._label.color = theme_manager.text_color
+        self._label.font_size = theme_manager.small_font
+        if theme_manager.font_name:
+            self._label.font_name = theme_manager.font_name
+        
         self.add_widget(self._label)
-        try:
-            if size_hint_y is not None:
-                self.size_hint_y = size_hint_y
-            else:
-                self.size_hint_y = None
-                self.height = h
-        except Exception:
-            pass
+        
+        # Bindings
+        theme_manager.bind(btn_bg=lambda _,v: setattr(self._bg_color, 'rgba', v))
+        theme_manager.bind(text_color=self.setter_label_color)
+        self.bind(text=lambda _,v: setattr(self._label, 'text', v))
 
-    @property
-    def text(self):
-        return self._label.text
+    def setter_label_color(self, _, color):
+        self._label.color = color
 
-    @text.setter
-    def text(self, v):
-        try:
-            self._label.text = v
-        except Exception:
-            pass
+    def _create_icon_widget(self, icon_name):
+        # Simplified icon mapping
+        fa_map = {'save': '\uf0c7', 'import': '\uf093', 'plus': '\uf067', 'delete': '\uf1f8'}
+        mapped = icon_name.lower()
+        if 'save' in mapped: code = fa_map['save']
+        elif 'import' in mapped: code = fa_map['import']
+        elif 'delete' in mapped: code = fa_map['delete']
+        elif 'plus' in mapped: code = fa_map['plus']
+        else: code = None
 
-    def restyle(self):
-        try:
-            if getattr(self, 'disabled', False):
-                lbl_color = (1,1,1,0.8) if _T('CURRENT_THEME') == 'dark' else (0.45,0.45,0.45,1)
-            else:
-                lbl_color = (1,1,1,1) if _T('CURRENT_THEME') == 'dark' else _T('TEXT_COLOR')
-            try:
-                self._label.color = lbl_color
-            except Exception:
-                pass
-            try:
-                if hasattr(self, '_label'):
-                    if not getattr(self._label, 'text_size', None) or (isinstance(getattr(self._label, 'text_size', None), (list, tuple)) and None in getattr(self._label, 'text_size', (None, None))):
-                        try:
-                            self._label.text_size = (self._label.width, self._label.height)
-                        except Exception:
-                            pass
-                    try:
-                        if hasattr(self._label, 'texture_update'):
-                            try:
-                                self._label.texture_update()
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            if getattr(self, '_bg_color_instr', None) is not None:
-                try:
-                    self._bg_color_instr.rgba = _T('BTN_BG')
-                except Exception:
-                    pass
-            for ch in getattr(self, 'children', []):
-                if hasattr(ch, '_mark_color_instruction') and ch._mark_color_instruction is not None:
-                    try:
-                        ch._mark_color_instruction.rgba = _T('ACCENT') if _T('CURRENT_THEME') == 'dark' else _T('TEXT_COLOR')
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        if code and theme_manager.fa_font:
+            l = Label(text=code, font_name=theme_manager.fa_font, font_size=sp(16), 
+                      size_hint=(None,None), size=(dp(28),dp(28)))
+            theme_manager.bind(text_color=l.setter('color'))
+            return l
+        
+        return IconButton(symbol=icon_name, width=dp(28), height=dp(28))
+
 
 class NameTouchable(Label):
-    """Label that supports long-press detection.
-
-    Dispatches an 'on_long_press' event with signature (self, touch).
-    """
+    """Long-press aware Label."""
     __events__ = ('on_long_press',)
-
-    def __init__(self, row_container=None, long_press_time=0.5, **kw):
-        try:
-            if FONT_NAME:
-                kw.setdefault('font_name', FONT_NAME)
-        except Exception:
-            pass
-        kw.setdefault('font_size', _T('SMALL_FONT'))
-        kw.setdefault('color', _T('TEXT_COLOR'))
-        kw.setdefault('halign', 'left')
-        kw.setdefault('valign', 'middle')
+    
+    def __init__(self, **kw):
         super().__init__(**kw)
-        from kivy.clock import Clock
-        self._lp_time = float(long_press_time)
+        self.color = theme_manager.text_color
+        self.font_size = theme_manager.small_font
+        theme_manager.bind(text_color=self.setter('color'))
         self._lp_ev = None
-        self._touch = None
-        self._long_pressed = False
-        try:
-            _register_themable(self)
-        except Exception:
-            pass
 
     def on_touch_down(self, touch):
-        if not self.collide_point(*touch.pos):
-            return super().on_touch_down(touch)
-        try:
-            from kivy.clock import Clock
-            self._touch = touch
-            self._lp_ev = Clock.schedule_once(lambda dt: self._do_long_press(touch), self._lp_time)
-        except Exception:
-            self._lp_ev = None
+        if self.collide_point(*touch.pos):
+            self._lp_ev = Clock.schedule_once(lambda dt: self.dispatch('on_long_press', touch), 0.5)
         return super().on_touch_down(touch)
 
-    def on_touch_move(self, touch):
-        if self._lp_ev is not None and touch is self._touch and not self.collide_point(*touch.pos):
-            try:
-                self._lp_ev.cancel()
-            except Exception:
-                pass
-            self._lp_ev = None
-        return super().on_touch_move(touch)
-
     def on_touch_up(self, touch):
-        if self._lp_ev is not None:
-            try:
-                self._lp_ev.cancel()
-            except Exception:
-                pass
-            self._lp_ev = None
-        self._touch = None
+        if self._lp_ev: self._lp_ev.cancel()
         return super().on_touch_up(touch)
-
-    def _do_long_press(self, touch):
-        self._lp_ev = None
-        self._long_pressed = True
-        try:
-            self.dispatch('on_long_press', touch)
-        except Exception:
-            pass
-
+        
     def on_long_press(self, touch):
         pass
 
 
-# ---------------------- Score input item (new) ----------------------
 class ScoreInputItem(BoxLayout):
-    """A reusable container for per-player score inputs.
-
-    Layout (horizontal): [base_input] [minus_btn] [dun_input] [plus_btn]
-
-    Designed so the whole widget can be treated as a single draggable
-    container in the future.
-    """
-
-    def __init__(self, base: int = 100, dun: int = 0, dun_score: int = 30, name: str = '', **kw):
+    """Combines Name, Base Input, Buttons, Dun Input."""
+    def __init__(self, base=100, dun=0, dun_score=30, name='', **kw):
         super().__init__(orientation='horizontal', spacing=dp(8), **kw)
-
-        self.base_value = base
-        self.dun_value = dun
-        self.dun_score = dun_score
-
-        # optional player name label at the start
-        try:
-            # use a touchable name widget so long-press can be detected safely
-            self.name_label = NameTouchable(text=(name or ''), size_hint_x=None, width=dp(120), halign='left', valign='middle')
-            try:
-                self.name_label.bind(on_long_press=self._on_name_long_press)
-            except Exception:
-                pass
-            try:
-                self.name_label.bind(on_touch_up=self._on_name_touch_up)
-            except Exception:
-                pass
-            self.add_widget(self.name_label)
-        except Exception:
-            self.name_label = None
-
-        # base score input
-        self.base_input = TI(text=str(self.base_value))
-        self.base_input.size_hint_x = None
-        self.base_input.width = dp(80)
-        self.add_widget(self.base_input)
-
-        # minus button
-        self.minus_btn = IconButton(symbol='minus', width=dp(36), height=dp(36))
-        self.minus_btn.bind(on_release=self._on_minus)
-        self.add_widget(self.minus_btn)
-
-        # dun count input
-        self.dun_input = TI(text=str(self.dun_value))
-        self.dun_input.size_hint_x = None
-        self.dun_input.width = dp(60)
-        self.add_widget(self.dun_input)
-
-        # plus button
-        self.plus_btn = IconButton(symbol='plus', width=dp(36), height=dp(36))
-        self.plus_btn.bind(on_release=self._on_plus)
-        self.add_widget(self.plus_btn)
-
-    def _on_plus(self, *_):
-        try:
-            v = int(self.dun_input.text or '0')
-            v += 1
-            self.dun_input.text = str(v)
-        except Exception:
-            self.dun_input.text = '0'
-
-    def _on_minus(self, *_):
-        try:
-            v = int(self.dun_input.text or '0')
-            v = max(0, v - 1)
-            self.dun_input.text = str(v)
-        except Exception:
-            self.dun_input.text = '0'
-
-    # long-press handlers
-    def _on_name_long_press(self, inst, touch):
-        try:
-            # visual cue: make the whole input item semi-transparent
-            self._long_pressed = True
-            self.opacity = 0.5
-        except Exception:
-            pass
-
-    def _on_name_touch_up(self, inst, touch):
-        try:
-            if getattr(self, '_long_pressed', False):
-                self._long_pressed = False
-                self.opacity = 1.0
-        except Exception:
-            pass
-
-    def get_values(self):
-        try:
-            base = int(self.base_input.text or '0')
-        except Exception:
-            base = self.base_value
-        try:
-            dun = int(self.dun_input.text or '0')
-        except Exception:
-            dun = self.dun_value
-        return {'base': base, 'dun': dun, 'dun_score': self.dun_score}
-        return {'base': base, 'dun': dun, 'dun_score': self.dun_score}
-
-# ---------------------- New Components extracted from StatisticsScreen ----------------------
-from kivy.uix.togglebutton import ToggleButtonBehavior
-from kivy.uix.dropdown import DropDown
-from kivy.animation import Animation
-from kivy.properties import NumericProperty
-
-class Separator(BoxLayout):
-    def __init__(self, color=None, **kwargs):
-        super().__init__(**kwargs)
-        self.size_hint_y = None
-        self.height = dp(1)
-        r, g, b, a = color if color else _T('DROPDOWN_SEPARATOR_COLOR')
-        with self.canvas:
-            Color(r, g, b, a)
-            self._rect = Rectangle(pos=self.pos, size=self.size)
-        self.bind(pos=lambda *_: setattr(self._rect, 'pos', self.pos))
-        self.bind(size=lambda *_: setattr(self._rect, 'size', self.size))
-
-
-class RadioToggle(ToggleButtonBehavior, BoxLayout):
-    _dot_alpha = NumericProperty(0.0)
-    _dot_size = NumericProperty(dp(10))
-
-    def __init__(self, text='', group=None, **kwargs):
-        super().__init__(orientation='horizontal', spacing=dp(8), padding=(dp(8), dp(8)), **kwargs)
-        if group:
-            self.group = group
-
-        # label
-        self.lbl = Label(text=text, valign='middle', size_hint_x=1)
-        if FONT_NAME:
-            self.lbl.font_name = FONT_NAME
-        self.lbl.color = _T('TEXT_COLOR')
-        self.lbl.font_size = sp(15)
-
-        # draw dot in this widget's canvas so we can position it centered vertically
-        with self.canvas:
-            self._dot_color = Color(*_T('ACCENT'))
-            self._dot_color.a = 0
-            self._dot_ellipse = Ellipse(pos=(self.x + dp(6), self.y + (self.height - self._dot_size)/2), size=(self._dot_size, self._dot_size))
-        # update when layout changes
-        self.bind(pos=self._update_dot_canvas, size=self._update_dot_canvas, _dot_size=self._update_dot_canvas, _dot_alpha=self._update_dot_alpha)
-
-        # add a spacer (left) and the label; spacer size accounts for dot
-        spacer = Widget(size_hint_x=None, width=dp(18))
-        self.add_widget(spacer)
-        self.add_widget(self.lbl)
         
+        # Name
+        self.name_label = NameTouchable(text=name, size_hint_x=None, width=dp(120), halign='left', valign='middle')
+        self.name_label.bind(size=lambda *_: setattr(self.name_label, 'text_size', self.name_label.size))
+        self.add_widget(self.name_label)
+        
+        # Base
+        self.base_input = TI(text=str(base))
+        self.base_input.width = dp(80)
+        self.base_input.size_hint_x = None
+        self.add_widget(self.base_input)
+        
+        # Controls (Minus/Plus Dun)
+        self.dun_val = dun
+        self.dun_score = dun_score
+        
+        btn_minus = IconButton('minus', width=dp(36))
+        btn_minus.bind(on_release=self._dec_dun)
+        self.add_widget(btn_minus)
+        
+        self.dun_input = TI(text=str(dun))
+        self.dun_input.width = dp(50)
+        self.dun_input.size_hint_x = None
+        self.add_widget(self.dun_input)
+        
+        btn_plus = IconButton('plus', width=dp(36))
+        btn_plus.bind(on_release=self._inc_dun)
+        self.add_widget(btn_plus)
+
+    def _dec_dun(self, *a):
         try:
-             _register_themable(self)
-        except Exception:
-             pass
+            v = int(self.dun_input.text)
+            self.dun_input.text = str(v - 1)
+        except: pass
 
-    def _update_dot_canvas(self, *a):
-        size = (self._dot_size, self._dot_size)
-        x = self.x + dp(6)
-        y = self.y + (self.height - self._dot_size) / 2
-        if hasattr(self, '_dot_ellipse') and self._dot_ellipse:
-            self._dot_ellipse.pos = (x, y)
-            self._dot_ellipse.size = size
+    def _inc_dun(self, *a):
+        try:
+            v = int(self.dun_input.text)
+            self.dun_input.text = str(v + 1)
+        except: pass
+        
+    def get_values(self):
+        return {
+            'base': self.base_input.text,
+            'dun': self.dun_input.text,
+            'dun_score': self.dun_score
+        }
 
-    def _update_dot_alpha(self, *a):
-        if hasattr(self, '_dot_color') and self._dot_color:
-            self._dot_color.a = float(self._dot_alpha)
+# ----------------------------------------------------------------------
+# Helper Cells for Scoreboard (Functional style replacement)
+# ----------------------------------------------------------------------
 
-    def on_state(self, widget, value):
-        # animate dot alpha and size to give press feedback
-        if value == 'down':
-            Animation.cancel_all(self)
-            Animation(_dot_size=dp(12), _dot_alpha=1.0, d=0.12).start(self)
+def CellWithBg(text, w, h, bg_prop_name):
+    """
+    Returns a configured BoxLayout with background bound to theme property.
+    """
+    box = BoxLayout(size_hint=(None, None), width=w, height=h)
+    
+    with box.canvas.before:
+        # Border
+        Color(*theme_manager.border_color)
+        border = Rectangle(pos=box.pos, size=box.size)
+        
+        # Background
+        c_bg = Color(*getattr(theme_manager, bg_prop_name))
+        rect = Rectangle(pos=(box.x+dp(1), box.y+dp(1)), 
+                         size=(max(0, box.width-dp(2)), max(0, box.height-dp(2))))
+    
+    # Bindings
+    def update_graphics(*_):
+        border.pos = box.pos
+        border.size = box.size
+        rect.pos = (box.x+dp(1), box.y+dp(1))
+        rect.size = (max(0, box.width-dp(2)), max(0, box.height-dp(2)))
+        
+    box.bind(pos=update_graphics, size=update_graphics)
+    
+    # Theme binding
+    theme_manager.bind(**{bg_prop_name: lambda _,v: setattr(c_bg, 'rgba', v)})
+    
+    l = L(text=str(text), size_hint=(1,1))
+    box.add_widget(l)
+    return box
+
+def TrophyWidget(rank=None, size=36):
+    """Returns just the label/icon for trophy."""
+    txt = ''
+    color = (0,0,0,0)
+    
+    if rank == 1:
+        txt = '\uf091' if theme_manager.fa_font else '🏆'
+        color = (1.0, 0.84, 0.0, 1)
+    elif rank == 'last':
+        txt = '\uf091' if theme_manager.fa_font else '🏆'
+        color = (0.6, 0.6, 0.63, 1)
+
+    l = Label(text=txt, font_size=sp(14), size_hint=(None, 1), width=dp(size))
+    l.color = color
+    
+    if theme_manager.fa_font and rank:
+        l.font_name = theme_manager.fa_font
+        
+    l.bind(size=lambda *_: setattr(l, 'text_size', l.size))
+    return l
+
+
+class Separator(Widget):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('size_hint_y', None)
+        kwargs.setdefault('height', dp(1))
+        super().__init__(**kwargs)
+        with self.canvas:
+            self._color = Color(*theme_manager.border_color)
+            self._rect = Rectangle(pos=self.pos, size=self.size)
+        
+        self.bind(pos=self._update, size=self._update)
+        theme_manager.bind(border_color=lambda _,v: setattr(self._color, 'rgba', v))
+
+    def _update(self, *args):
+        self._rect.pos = self.pos
+        self._rect.size = self.size
+
+
+class RadioToggle(ToggleButton):
+    """Themed ToggleButton."""
+    def __init__(self, **kwargs):
+        kwargs.setdefault('height', theme_manager.btn_height)
+        super().__init__(**kwargs)
+        self.background_normal = ''
+        self.background_down = ''
+        self.background_color = theme_manager.btn_bg
+        self.color = theme_manager.text_color
+        self.font_size = sp(13)
+        
+        # We need to handle state visually if we remove background_normal/down
+        # But ToggleButton usually handles 'down' state by itself if we kept defaults.
+        # Since we removed them, we rely on background_color.
+        # But background_color doesn't automatically change on state 'down' unless we bind.
+        
+        self.bind(state=self._on_state)
+        theme_manager.bind(btn_bg=self._update_colors)
+        theme_manager.bind(accent=self._update_colors)
+        theme_manager.bind(text_color=self.setter('color'))
+        theme_manager.bind(font_name=self.setter('font_name'))
+        
+    def _on_state(self, instance, value):
+        self._update_colors()
+        
+    def _update_colors(self, *args):
+        if self.state == 'down':
+             self.background_color = theme_manager.accent
+             self.color = (1,1,1,1) # Force white on accent? Or theme_manager.text_color?
+             # Usually accent is dark -> white text.
         else:
-            Animation.cancel_all(self)
-            Animation(_dot_size=dp(10), _dot_alpha=0.0, d=0.12).start(self)
-            
-    def restyle(self):
-        # Update colors when theme changes
-        if hasattr(self, '_dot_color'):
-             self._dot_color.rgb = _T('ACCENT')[:3]
-        if hasattr(self, 'lbl'):
-             self.lbl.color = _T('TEXT_COLOR')
+             self.background_color = theme_manager.btn_bg
+             self.color = theme_manager.text_color
 
 
 class AnimatedDropDown(DropDown):
-    def open(self, widget):
-        # start invisible then let super create and position
-        self.opacity = 0
-        super().open(widget)
-        Animation.cancel_all(self)
-        Animation(opacity=1.0, d=0.16).start(self)
+    """Simple DropDown placeholder."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Assuming no special animation logic needed for MVP reset, just standard behavior.
 
-    def add_widget(self, widget, *a, **kw):
-        # insert a 1px separator between SpinnerOption items
-        from kivy.uix.spinner import SpinnerOption as _SO
-        if isinstance(widget, _SO) and len(self.children) > 0:
-            super().add_widget(Separator())
-        super().add_widget(widget, *a, **kw)

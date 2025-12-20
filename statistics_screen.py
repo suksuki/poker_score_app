@@ -7,8 +7,7 @@ from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.uix.button import Button
 from kivy.metrics import dp, sp
 from kivy.clock import Clock
-import theme as _theme
-from theme import TEXT_COLOR, FONT_NAME, ACCENT, DROPDOWN_BG, DROPDOWN_OPTION_BG, DROPDOWN_OPTION_PRESSED
+from theme import theme_manager
 from storage import load_data
 import stats_helpers
 from widgets import Separator, RadioToggle, AnimatedDropDown, L, BTN
@@ -54,7 +53,7 @@ class StatisticsScreen(Screen):
         self.player_spinner = Spinner(text='全部', values=['全部'], size_hint_x=0.7)
         self.player_spinner.background_normal = ''
         self.player_spinner.background_down = ''
-        self.player_spinner.background_color = DROPDOWN_BG
+        self.player_spinner.background_color = theme_manager.dropdown_bg
         self.player_spinner.color = (1, 1, 1, 1)
         self.player_spinner.padding = (dp(12), dp(8))
         self.player_spinner.dropdown_cls = AnimatedDropDown
@@ -65,30 +64,30 @@ class StatisticsScreen(Screen):
                 kwargs.setdefault('background_down', '')
                 kwargs.setdefault('padding', (dp(12), dp(10)))
                 super().__init__(**kwargs)
-                self.background_color = DROPDOWN_OPTION_BG
+                self.background_color = theme_manager.dropdown_option_bg
                 self.color = (1, 1, 1, 1)
-                if FONT_NAME:
-                    self.font_name = FONT_NAME
+                if theme_manager.font_name:
+                    self.font_name = theme_manager.font_name
                 self.font_size = sp(14)
                 self.bind(state=self._on_state)
 
             def _on_state(self, inst, value):
                 if value == 'down':
-                    inst.background_color = DROPDOWN_OPTION_PRESSED
+                    inst.background_color = theme_manager.dropdown_option_pressed
                 else:
-                    inst.background_color = DROPDOWN_OPTION_BG
+                    inst.background_color = theme_manager.dropdown_option_bg
 
         self.player_spinner.option_cls = FontSpinnerOption
-        if FONT_NAME:
-            self.player_spinner.font_name = FONT_NAME
+        if theme_manager.font_name:
+            self.player_spinner.font_name = theme_manager.font_name
         
         self.player_spinner.bind(text=lambda inst, val: self.refresh())
 
         gen_btn = Button(text='生成测试', size_hint_x=None, width=dp(100))
         gen_btn.background_normal = ''
         gen_btn.background_color = (0.36, 0.36, 0.38, 1)
-        if FONT_NAME:
-            gen_btn.font_name = FONT_NAME
+        if theme_manager.font_name:
+            gen_btn.font_name = theme_manager.font_name
         gen_btn.bind(on_press=lambda *_: self.generate_test_data(20))
 
         fb.add_widget(self.player_spinner)
@@ -234,10 +233,10 @@ class StatisticsScreen(Screen):
             self.hv_child.width = content_width
 
             # Header Row: "Metrics" | P1 | P2 | ...
-            self.header.add_widget(BTN("指标", width=dp(140), background_color=(0,0,0,0), color=TEXT_COLOR))
+            self.header.add_widget(BTN("指标", width=dp(140), background_color=(0,0,0,0), color=theme_manager.text_color))
             for pname in player_names:
                 w = int((content_width - dp(140)) / max(1, content_cols - 1)) if content_cols > 1 else content_width
-                self.header.add_widget(BTN(pname, width=w, background_color=(0,0,0,0), color=TEXT_COLOR))
+                self.header.add_widget(BTN(pname, width=w, background_color=(0,0,0,0), color=theme_manager.text_color))
 
             # Data Rows
             for mi, mkey in enumerate(metrics_keys):
@@ -305,14 +304,14 @@ class StatisticsScreen(Screen):
             btn.background_normal = ''
             btn.background_down = ''
             if self.sort_column == k:
-                btn.background_color = ACCENT
+                btn.background_color = theme_manager.accent
                 btn.color = (1,1,1,1)
             else:
                 btn.background_color = (0,0,0,0)
-                btn.color = TEXT_COLOR
+                btn.color = theme_manager.text_color
             
-            if FONT_NAME:
-                btn.font_name = FONT_NAME
+            if theme_manager.font_name:
+                btn.font_name = theme_manager.font_name
             
             # Width logic
             if t == '玩家':
