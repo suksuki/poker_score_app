@@ -1,457 +1,208 @@
+import sys
+import os
+import time
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.screenmanager import ScreenManager, FadeTransition
 from kivy.core.window import Window
 from kivy.metrics import dp, sp
 from kivy.uix.floatlayout import FloatLayout
+from kivy.clock import Clock
+from kivy.config import Config
 
-# Lightweight entry that restores theme/meta on startup and saves them on exit.
+# Configure Kivy keyboard mode early
+if sys.platform.startswith('win'):
+    Config.set('kivy', 'keyboard_mode', 'system')
+
 from screens import SetupScreen, InputScreen, ScoreScreen, StatisticsScreen
 from storage import load_data, save_data
-from theme import apply_theme
-import theme as _theme
+from theme import theme_manager
 from widgets import IconTextButton
-from kivy.clock import Clock
-import time
-
+from utils.logger import logger
 
 class PokerScoreApp(App):
     def build(self):
-        try:
-            Window.minimum_width = 360
-            Window.minimum_height = 640
-        except Exception:
-            pass
+        Window.minimum_width = 360
+        Window.minimum_height = 640
+        self.title = "Poker Score"
 
-        # Load saved data first so we can apply theme before creating screens
-        try:
-            data = load_data() or {}
-        except Exception:
-            data = {}
+        # Load saved data first
+        data = load_data() or {}
         meta = data.get('meta', {}) if isinstance(data, dict) else {}
-        theme_name = meta.get('theme')
-        try:
-            if theme_name:
-                apply_theme(theme_name)
-        except Exception:
-            pass
+        
+        # Apply theme
+        theme_name = meta.get('theme', 'light')
+        theme_manager.switch_theme(theme_name)
 
-        sm = ScreenManager(transition=FadeTransition())
-        sm.add_widget(SetupScreen(name='setup'))
-        sm.add_widget(InputScreen(name='input'))
-        sm.add_widget(ScoreScreen(name='score'))
-        sm.add_widget(StatisticsScreen(name='statistics'))
-        # keep a reference to the ScreenManager for diagnostics and on_stop
-        try:
-            self._sm = sm
-        except Exception:
-            pass
+        self.sm = ScreenManager(transition=FadeTransition())
+        self.sm.add_widget(SetupScreen(name='setup'))
+        self.sm.add_widget(InputScreen(name='input'))
+        self.sm.add_widget(ScoreScreen(name='score'))
+        self.sm.add_widget(StatisticsScreen(name='statistics'))
 
-        # Always start at the Setup screen on application launch per user request
-        try:
-            sm.current = 'setup'
-        except Exception:
-            pass
+        self.sm.current = 'setup'
 
-        # Give screens a chance to initialize from loaded data
-        try:
-            scr = sm.get_screen('setup')
-            if hasattr(scr, 'refresh_loaded'):
-                try:
-                    scr.refresh_loaded()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        try:
-            scr_score = sm.get_screen('score')
-            if hasattr(scr_score, 'rebuild_board'):
-                try:
-                    scr_score.rebuild_board()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # Refresh Setup Screen
+        self._safe_refresh_screen('setup')
 
-        # Note: do not restore last tab; app should always start at Setup
+        self.root_layout = FloatLayout()
+        self.content = BoxLayout(orientation='vertical', size_hint=(1, 1))
 
-        # Build a root FloatLayout so we can place an overlay above the main content
-        # The visible app content (ScreenManager + tab bar) is inside a vertical BoxLayout
-        root = FloatLayout()
-        content = BoxLayout(orientation='vertical', size_hint=(1, 1))
-        # place tab bar at the top (added after the ScreenManager so it's visually on top)
+        # Footer (Tab Bar)
         footer = BoxLayout(size_hint_y=None, height=dp(56), spacing=dp(4), padding=(dp(4), dp(4)))
-        tabs = [
+        self.tabs = [
             ('setup', '设置'),
             ('input', '录入'),
             ('score', '记分'),
             ('statistics', '统计'),
         ]
-        tab_buttons = {}
+        self.tab_buttons = {}
 
-        def _on_tab_press(name, btn):
-            try:
-                # clear focus from any TextInput to avoid focus/keyboard blocking navigation
-                try:
-                    from kivy.uix.textinput import TextInput
-                    def _clear_focus(w):
-                        try:
-                            if isinstance(w, TextInput):
-                                w.focus = False
-                        except Exception:
-                            pass
-                        try:
-                            for c in getattr(w, 'children', []):
-                                _clear_focus(c)
-                        except Exception:
-                            pass
-                    try:
-                        _clear_focus(App.get_running_app().root)
-                    except Exception:
-                        pass
-                    try:
-                        from kivy.core.window import Window
-                        if hasattr(Window, 'release_all_keyboards'):
-                            try:
-                                Window.release_all_keyboards()
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-                # set current immediately so UI switches; run heavier init on next frame
-                try:
-                    try:
-                        setattr(sm, 'current', name)
-                    except Exception:
-                        sm.current = name
-                except Exception:
-                    pass
-                # detailed debug snapshot for reproducing navigation issues
-                try:
-                    root_ref = getattr(self, '_root', None)
-                    root_children = len(root_ref.children) if root_ref is not None else 'NA'
-                    print(f"[NAV-DBG] ts={time.time():.3f} requested={name} sm.current={getattr(sm,'current',None)} root_children={root_children}")
-                except Exception:
-                    pass
-                try:
-                    def _do_init(dt):
-                        try:
-                            print(f"[NAV-DBG] init-start ts={time.time():.3f} target={name} sm.current={getattr(sm,'current',None)}")
-                            # after switching, ensure the target screen initializes
-                            if name == 'setup':
-                                scr = sm.get_screen('setup')
-                                if hasattr(scr, 'refresh_loaded'):
-                                    try:
-                                        print(f"[NAV-DBG] setup.scr.parent={getattr(scr,'parent',None)}")
-                                        scr.refresh_loaded()
-                                    except Exception:
-                                        pass
-                            elif name == 'input':
-                                scr = sm.get_screen('input')
-                                try:
-                                    from kivy.app import App as _App
-                                    active = getattr(_App.get_running_app(), '_game_active', False)
-                                except Exception:
-                                    active = False
-                                if active:
-                                    if hasattr(scr, 'rows_container') and hasattr(scr, 'set_players'):
-                                        try:
-                                            # load players from storage only when game active
-                                            from storage import load_data
-                                            data = load_data() or {}
-                                            players = data.get('players') or []
-                                            scr.set_players(players)
-                                        except Exception:
-                                            pass
-                                else:
-                                    # ensure input screen is empty if game not started
-                                    try:
-                                        if hasattr(scr, 'set_players'):
-                                            scr.set_players([])
-                                    except Exception:
-                                        pass
-                                    # also remove any overlays or leftover widgets added to root
-                                    try:
-                                        root_ref = getattr(self, '_root', None)
-                                        content_ref = getattr(self, '_content', None)
-                                        if root_ref is not None and content_ref is not None:
-                                            for ch in list(root_ref.children):
-                                                if ch is not content_ref:
-                                                    try:
-                                                        root_ref.remove_widget(ch)
-                                                    except Exception:
-                                                        pass
-                                    except Exception:
-                                        pass
-                            elif name == 'score':
-                                scr = sm.get_screen('score')
-                                try:
-                                    from kivy.app import App as _App
-                                    active = getattr(_App.get_running_app(), '_game_active', False)
-                                except Exception:
-                                    active = False
-                                if active:
-                                    if hasattr(scr, 'rebuild_board'):
-                                        try:
-                                            scr.rebuild_board()
-                                        except Exception:
-                                            pass
-                                else:
-                                    # clear board when game not started
-                                    try:
-                                        scr.board_box.clear_widgets()
-                                    except Exception:
-                                        pass
-                        except Exception:
-                            pass
-                        try:
-                            # snapshot after attempted init
-                            root_ref2 = getattr(self, '_root', None)
-                            root_children2 = len(root_ref2.children) if root_ref2 is not None else 'NA'
-                            print(f"[NAV-DBG] init-end ts={time.time():.3f} target={name} sm.current={getattr(sm,'current',None)} root_children={root_children2}")
-                        except Exception:
-                            pass
-                    Clock.schedule_once(_do_init, 0)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-            try:
-                # debug: confirm current changed
-                print(f"[DEBUG] requested tab change to {name}, sm.current now={getattr(sm, 'current', None)}")
-            except Exception:
-                pass
-            for nm, b in tab_buttons.items():
-                try:
-                    if nm == name:
-                        try:
-                            b._label.color = _theme.ACCENT
-                            try:
-                                b._label.text = f"[b]{b._raw_text}[/b]"
-                                b._label.font_size = sp(16)
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            b._label.color = _theme.TEXT_COLOR
-                            try:
-                                b._label.text = b._raw_text
-                                b._label.font_size = _theme.SMALL_FONT
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+        for tab_name, tab_label in self.tabs:
+            btn = IconTextButton(text=tab_label, icon='')
+            btn._raw_text = tab_label
+            btn.bind(on_press=lambda inst, n=tab_name: self._on_tab_press(n, inst))
+            footer.add_widget(btn)
+            self.tab_buttons[tab_name] = btn
 
-        for name, label in tabs:
-            try:
-                btn = IconTextButton(text=label)
-                btn.size_hint_x = 1
-                # bind both press and release to improve responsiveness across platforms
-                btn.bind(on_press=lambda inst, n=name: _on_tab_press(n, inst))
-                try:
-                    btn.bind(on_release=lambda inst, n=name: _on_tab_press(n, inst))
-                except Exception:
-                    pass
-                footer.add_widget(btn)
-                tab_buttons[name] = btn
-            except Exception:
-                pass
+        # Bind theme changes to update tab styles
+        theme_manager.bind(current_theme=self._update_tab_styles)
+        theme_manager.bind(accent=self._update_tab_styles)
+        theme_manager.bind(text_color=self._update_tab_styles)
+        self._update_tab_styles()
 
-        # apply initial active style
+        self.content.add_widget(footer)
+        self.content.add_widget(self.sm)
+        self.root_layout.add_widget(self.content)
+
+        # Overlay Layer
+        self.overlay_layer = FloatLayout(size_hint=(1, 1))
+        self.overlays = {}
+        self.overlay_queue = []
+
+        # Global operations (Import/Export)
+        self.global_ops = BoxLayout(size_hint=(1, None), height=dp(48), spacing=dp(6), padding=(dp(4), dp(4)))
+        imp_btn = IconTextButton(text='导入 JSON', icon='file-upload')
+        exp_btn = IconTextButton(text='导出 JSON', icon='file-download')
+
+        imp_btn.bind(on_release=lambda *_: self.sm.get_screen('input').import_json_dialog())
+        exp_btn.bind(on_release=lambda *_: self.sm.get_screen('input').export_json_dialog())
+        
+        imp_btn.size_hint_x = 1
+        exp_btn.size_hint_x = 1
+
+        self.global_ops.add_widget(imp_btn)
+        self.global_ops.add_widget(exp_btn)
+        self.content.add_widget(self.global_ops)
+
+        return self.root_layout
+
+    def _safe_refresh_screen(self, name):
         try:
-            cur = sm.current
-            for nm, b in tab_buttons.items():
-                try:
-                    # selected tab: larger bold label
-                    if nm == cur:
-                        try:
-                            b._label.color = _theme.ACCENT
-                            b._label.text = f"[b]{b._raw_text}[/b]"
-                            b._label.font_size = sp(16)
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            b._label.color = _theme.TEXT_COLOR
-                            b._label.text = b._raw_text
-                            b._label.font_size = _theme.SMALL_FONT
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-        except Exception:
-            pass
+            scr = self.sm.get_screen(name)
+            if hasattr(scr, 'refresh_loaded'):
+                scr.refresh_loaded()
+            elif hasattr(scr, 'rebuild_board'):
+                scr.rebuild_board()
+        except Exception as e:
+            logger.error(f"Error refreshing screen {name}: {e}")
 
-        # register a theme-change listener to refresh dynamic visuals when theme changes
-        try:
-            def _on_theme_change():
-                try:
-                    # update tab label colors according to current tab
-                    for nm, b in tab_buttons.items():
-                            try:
-                                if nm == sm.current:
-                                    b._label.color = _theme.ACCENT
-                                    try:
-                                        b._label.text = f"[b]{b._raw_text}[/b]"
-                                        b._label.font_size = sp(16)
-                                    except Exception:
-                                        pass
-                                else:
-                                    b._label.color = _theme.TEXT_COLOR
-                                    try:
-                                        b._label.text = b._raw_text
-                                        b._label.font_size = _theme.SMALL_FONT
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-                try:
-                    # update global ops buttons colors if present
-                    go = getattr(self, '_global_ops', None)
-                    if go is not None:
-                        for ch in go.children:
-                            try:
-                                if hasattr(ch, '_label'):
-                                    ch._label.color = _theme.TEXT_COLOR
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-                try:
-                    # refresh score board (rebuild uses theme constants)
-                    scr_score = sm.get_screen('score')
-                    if hasattr(scr_score, 'rebuild_board'):
-                        scr_score.rebuild_board()
-                except Exception:
-                    pass
-                try:
-                    # let setup screen refresh any loaded UI
-                    scr_setup = sm.get_screen('setup')
-                    if hasattr(scr_setup, 'refresh_loaded'):
-                        scr_setup.refresh_loaded()
-                except Exception:
-                    pass
-                try:
-                    # re-render input rows so ranks/trophy colors update
-                    scr_input = sm.get_screen('input')
-                    if hasattr(scr_input, 'rows_container') and hasattr(scr_input, '_render_rows_from_order'):
-                        children_tb = list(scr_input.rows_container.children)[::-1]
-                        scr_input._render_rows_from_order(children_tb)
-                except Exception:
-                    pass
+    def _on_tab_press(self, name, btn):
+        # Debounce
+        last = getattr(self, '_last_tab_press', 0)
+        if time.time() - last < 0.25 and getattr(self, '_last_tab_name', None) == name:
+            return
+        self._last_tab_press = time.time()
+        self._last_tab_name = name
 
-            try:
-                _theme.register_theme_listener(_on_theme_change)
-                # call once to ensure initial application
-                _on_theme_change()
-            except Exception:
-                pass
-        except Exception:
-            pass
+        # Clear focus
+        if self.root:
+            self._clear_focus(self.root)
+        Window.release_all_keyboards()
 
-        # add footer first so it appears at the top, then ScreenManager fills remaining space
-        content.add_widget(footer)
-        content.add_widget(sm)
-        root.add_widget(content)
-        # keep references to main content and root for overlay cleanup
-        try:
-            self._root = root
-            self._content = content
-        except Exception:
-            pass
+        # Remove Overlays
+        self.clear_overlays()
 
-        # Create a global import/export bar at the bottom of the page container
-        try:
-            global_ops = BoxLayout(size_hint=(1, None), height=dp(48), spacing=dp(6), padding=(dp(4), dp(4)))
-            imp_btn = IconTextButton(text='导入 JSON', icon='file-upload')
-            exp_btn = IconTextButton(text='导出 JSON', icon='file-download')
-            try:
-                imp_btn.bind(on_press=lambda *_: sm.get_screen('input').import_json_dialog())
-                try:
-                    imp_btn.bind(on_release=lambda *_: sm.get_screen('input').import_json_dialog())
-                except Exception:
-                    pass
-            except Exception:
-                pass
-            try:
-                exp_btn.bind(on_press=lambda *_: sm.get_screen('input').export_json_dialog())
-                try:
-                    exp_btn.bind(on_release=lambda *_: sm.get_screen('input').export_json_dialog())
-                except Exception:
-                    pass
-            except Exception:
-                pass
-            try:
-                imp_btn.size_hint_x = 1
-                exp_btn.size_hint_x = 1
-            except Exception:
-                pass
-            global_ops.add_widget(imp_btn)
-            global_ops.add_widget(exp_btn)
-            # add to content (bottom of the page container)
-            try:
-                content.add_widget(global_ops)
-            except Exception:
-                # fallback: add to root if content not available
-                try:
-                    root.add_widget(global_ops)
-                except Exception:
-                    pass
-            try:
-                # keep a reference for screens if needed
-                self._global_ops = global_ops
-            except Exception:
-                pass
-        except Exception:
-            pass
-        # Diagnostic output to help track widget tree at startup
-        try:
-            print(f"[DEBUG] ScreenManager has {len(sm.screens)} screens; current={sm.current}")
-            for s in sm.screens:
-                try:
-                    print(f"[DEBUG] screen {s.name} children={len(s.children)} types={[type(c).__name__ for c in s.children]}")
-                except Exception:
-                    pass
-            try:
-                print(f"[DEBUG] global_ops children={len(global_ops.children)}")
-            except Exception:
-                pass
-        except Exception:
-            pass
+        # Switch
+        self.sm.current = name
+        self._update_tab_styles()
+        
+        # Init screen
+        Clock.schedule_once(lambda dt: self._do_init_screen(name), 0)
 
-        return root
+    def _clear_focus(self, widget):
+        from kivy.uix.textinput import TextInput
+        if isinstance(widget, TextInput):
+            widget.focus = False
+        for c in getattr(widget, 'children', []):
+            self._clear_focus(c)
+
+    def _do_init_screen(self, name):
+        if name == 'setup':
+            self._safe_refresh_screen('setup')
+        elif name == 'input':
+            scr = self.sm.get_screen('input')
+            active = getattr(self, '_game_active', False)
+            if active and hasattr(scr, 'set_players'):
+                data = load_data() or {}
+                scr.set_players(data.get('players', []))
+            elif hasattr(scr, 'set_players'):
+                scr.set_players([])
+                self.clear_overlays()
+        elif name == 'score':
+            self._safe_refresh_screen('score')
+
+    def _update_tab_styles(self, *args):
+        current = self.sm.current
+        for nm, btn in self.tab_buttons.items():
+            if nm == current:
+                btn._label.color = theme_manager.accent
+                btn._label.text = f"[b]{btn._raw_text}[/b]"
+                btn._label.font_size = sp(16)
+            else:
+                btn._label.color = theme_manager.text_color
+                btn._label.text = btn._raw_text
+                btn._label.font_size = theme_manager.small_font
+    
+    # Overlay Methods
+    def add_overlay(self, widget, name: str = None):
+        if not self.overlay_layer: return
+        if not self.overlay_layer.parent:
+            self.root_layout.add_widget(self.overlay_layer)
+        
+        self.overlay_layer.add_widget(widget)
+        if name: self.overlays[name] = widget
+
+    def remove_overlay(self, widget=None, name: str = None):
+        if not self.overlay_layer: return
+        
+        target = None
+        if name and name in self.overlays:
+            target = self.overlays.pop(name)
+        elif widget:
+            target = widget
+            
+        if target and target.parent == self.overlay_layer:
+            self.overlay_layer.remove_widget(target)
+            
+        if not self.overlay_layer.children and self.overlay_layer.parent:
+            self.root_layout.remove_widget(self.overlay_layer)
+
+    def clear_overlays(self):
+        if not self.overlay_layer: return
+        self.overlay_layer.clear_widgets()
+        self.overlays.clear()
+        if self.overlay_layer.parent:
+            self.root_layout.remove_widget(self.overlay_layer)
 
     def on_stop(self):
-        # persist last viewed tab and theme
-        try:
-            data = load_data() or {}
-        except Exception:
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
+        # Save meta
+        data = load_data() or {}
+        if not isinstance(data, dict): data = {}
         meta = data.setdefault('meta', {})
-        try:
-            # persist the last viewed tab from the ScreenManager (not the root BoxLayout)
-            meta['last_tab'] = (getattr(self, '_sm', None).current if getattr(self, '_sm', None) is not None else meta.get('last_tab'))
-        except Exception:
-            pass
-        try:
-            meta['theme'] = getattr(_theme, 'CURRENT_THEME', None)
-        except Exception:
-            pass
-        try:
-            save_data(data)
-        except Exception:
-            pass
-
+        meta['theme'] = theme_manager.current_theme
+        save_data(data)
+        logger.info("App stopped, data saved.")
 
 if __name__ == '__main__':
     PokerScoreApp().run()
